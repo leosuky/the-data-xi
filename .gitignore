@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+dist/
+build/
+
+# Data / local DB
+/warehouse/
+/Done/
+/*.db
+*.parquet
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store

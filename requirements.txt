@@ -1,0 +1,8 @@
+Django
+djangorestframework
+psycopg2-binary
+duckdb
+pandas
+sqlalchemy
+python-dotenv
+prefect

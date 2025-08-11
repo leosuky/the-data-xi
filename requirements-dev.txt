@@ -1,0 +1,7 @@
+-r requirements.txt
+pytest
+pytest-django
+black
+flake8
+isort
+mypy

@@ -1,0 +1,23 @@
+{
+  "name": "The Data XI",
+  "dockerComposeFile": [
+    ".devcontainer/docker-compose.yml"
+  ],
+  "service": "workspace",
+  "workspaceFolder": "/workspaces/the-data-xi",
+  "customizations": {
+    "vscode": {
+        "settings": {
+            "terminal.integrated.shell.linux": "/bin/bash"
+        },
+        "extensions": [
+            "ms-python.python",
+            "ms-python.vscode-pylance",
+            "ms-azuretools.vscode-docker",
+            "esbenp.prettier-vscode"
+        ]
+    }
+  },
+  "postCreateCommand": "pip install --upgrade pip setuptools wheel && pip install -r requirements-dev.txt || true",
+  "remoteUser": "vscode"
+}
