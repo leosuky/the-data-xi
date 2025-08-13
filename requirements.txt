@@ -1,8 +1,10 @@
-Django
-djangorestframework
-psycopg2-binary
-duckdb
+# Core
+pyspark==3.5.1
+pyarrow
 pandas
-sqlalchemy
-python-dotenv
 prefect
+python-dotenv
+
+# Optional/handy
+duckdb
+sqlalchemy

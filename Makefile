@@ -1,25 +1,17 @@
-.PHONY: init start stop shell migrate createsuperuser test lint
+.PHONY: up down bash spark-ui bronze
 
-init:
-	python -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
+up:
+	@docker compose -f .devcontainer/docker-compose.yml up -d --build
 
-start:
-	docker-compose up -d postgres
+down:
+	@docker compose -f .devcontainer/docker-compose.yml down
 
-stop:
-	docker-compose down
+bash:
+	@docker compose -f .devcontainer/docker-compose.yml exec app bash
 
-shell:
-	/bin/bash
+spark-ui:
+	@echo "Spark UI -> http://localhost:4040 (when a job is running)"
 
-migrate:
-	python manage.py migrate
-
-createsuperuser:
-	python manage.py createsuperuser
-
-test:
-	pytest -q
-
-lint:
-	black --check . && flake8
+bronze:
+	@docker compose -f .devcontainer/docker-compose.yml exec app \
+	  python -m src.pipelines.bronze_ingest

@@ -1,23 +1,21 @@
 {
   "name": "The Data XI",
-  "dockerComposeFile": [
-    ".devcontainer/docker-compose.yml"
-  ],
-  "service": "workspace",
+  "dockerComposeFile": [".devcontainer/docker-compose.yml"],
+  "service": "app",
+  "runServices": ["db"],
   "workspaceFolder": "/workspaces/the-data-xi",
+  "remoteUser": "vscode",
   "customizations": {
     "vscode": {
-        "settings": {
-            "terminal.integrated.shell.linux": "/bin/bash"
-        },
-        "extensions": [
-            "ms-python.python",
-            "ms-python.vscode-pylance",
-            "ms-azuretools.vscode-docker",
-            "esbenp.prettier-vscode"
-        ]
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "ms-ossdata.vscode-postgresql",
+        "ms-azuretools.vscode-docker"
+      ]
     }
   },
-  "postCreateCommand": "pip install --upgrade pip setuptools wheel && pip install -r requirements-dev.txt || true",
-  "remoteUser": "vscode"
+  "postCreateCommand": "pip install --no-cache-dir -r requirements.txt || true",
+  "forwardPorts": [4040, 5432]
 }

@@ -1,16 +1,25 @@
-# .devcontainer/docker-compose.yml
-version: '3.8'
+version: "3.9"
+
 services:
-  workspace:
+  app:
     build:
-      context: ..
-      dockerfile: .devcontainer/Dockerfile
+      context: .          # build from .devcontainer/
+      dockerfile: Dockerfile
     volumes:
       - ..:/workspaces/the-data-xi:cached
+    working_dir: /workspaces/the-data-xi
     command: sleep infinity
     environment:
-      - PIP_NO_CACHE_DIR=1
-  postgres:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      SPARK_LOCAL_IP: "127.0.0.1"
+      JAVA_HOME: "/usr/lib/jvm/java-17-openjdk-amd64"
+    depends_on:
+      - db
+    ports:
+      - "4040:4040"   # Spark UI
+
+  db:
     image: postgres:15
     restart: unless-stopped
     environment:
