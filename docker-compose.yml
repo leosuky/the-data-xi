@@ -1,34 +1,37 @@
-version: "3.8"
-
 services:
-  app:
-    build: .
-    container_name: dataxi_app
+  spark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: the_data_xi_spark
     volumes:
       - .:/workspace
-      - ./.env:/workspace/.env
     working_dir: /workspace
-    environment:
-      PYTHONUNBUFFERED: "1"
-      SPARK_LOCAL_IP: "127.0.0.1"
-    ports:
-      - "4040:4040"     # Spark UI (shows while a job runs)
     depends_on:
-      - db
+      - postgres
+    environment:
+      - PYTHONUNBUFFERED=1
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=the_data_xi
+      - POSTGRES_PASSWORD=the_data_xi
+      - POSTGRES_DB=the_data_xi
+    command: bash
     stdin_open: true
     tty: true
 
-  db:
-    image: postgres:15
-    container_name: dataxi_db
+  postgres:
+    image: postgres:15-alpine
+    container_name: the_data_xi_postgres
+    restart: always
     environment:
-      POSTGRES_USER: dataxi
-      POSTGRES_PASSWORD: dataxi
-      POSTGRES_DB: dataxi
+      POSTGRES_USER: the_data_xi
+      POSTGRES_PASSWORD: the_data_xi
+      POSTGRES_DB: the_data_xi
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
 
 volumes:
-  pgdata:
+  postgres_data:
