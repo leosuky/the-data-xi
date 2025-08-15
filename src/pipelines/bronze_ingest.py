@@ -1,8 +1,9 @@
 import os
 from pyspark.sql import functions as F
-from the_data_xi.spark_session import get_spark
-from the_data_xi.paths import RAW_DIR, BRONZE_DIR
-from the_data_xi.utils import add_path_partitions
+from src.config import RAW_DIR, BRONZE_DIR
+from src.the_data_xi.spark_session import get_spark
+from src.the_data_xi.paths import ensure_dirs
+from src.the_data_xi.utils import add_path_partitions
 
 """
 Bronze ingest strategy:
@@ -13,62 +14,45 @@ Bronze ingest strategy:
 - Append-only (idempotent via overwrite by partition on dev runs if needed)
 """
 
+def _write(df, domain: str):
+    if df is None: 
+        return
+    if not df.take(1):
+        return
+    (
+        df.withColumn("ingested_at", F.current_timestamp())
+          .write.mode("append")
+          .partitionBy("tournament", "season", "gameweek")
+          .parquet(os.path.join(BRONZE_DIR, domain))
+    )
+    print(f"✔ {domain} → bronze")
+
+
 def main():
+    ensure_dirs()
     spark = get_spark("TDXI_BronzeIngest")
 
-    # === 1) Match statistics JSON ===
+    # 1) Match statistics
     stats_glob = os.path.join(RAW_DIR, "*", "*", "*", "*", "event-*-statistics.json")
     stats = spark.read.option("multiLine", "true").json(stats_glob)
-    if stats.head(1):
-        stats = add_path_partitions(stats)
-        (stats
-         .withColumn("ingested_at", F.current_timestamp())
-         .write
-         .mode("append")
-         .partitionBy("tournament", "season", "gameweek")
-         .parquet(os.path.join(BRONZE_DIR, "statistics")))
-        print("✔ statistics → bronze")
+    _write(add_path_partitions(stats), "statistics")
 
-    # === 2) Lineups JSON ===
+    # 2) Lineups
     lineups_glob = os.path.join(RAW_DIR, "*", "*", "*", "*", "event-*-lineups.json")
     lineups = spark.read.option("multiLine", "true").json(lineups_glob)
-    if lineups.head(1):
-        lineups = add_path_partitions(lineups)
-        (lineups
-         .withColumn("ingested_at", F.current_timestamp())
-         .write
-         .mode("append")
-         .partitionBy("tournament", "season", "gameweek")
-         .parquet(os.path.join(BRONZE_DIR, "lineups")))
-        print("✔ lineups → bronze")
+    _write(add_path_partitions(lineups), "lineups")
 
-    # === 3) Heatmaps JSON (per-team/per-player heatmaps) ===
+    # 3) Heatmaps
     heat_glob = os.path.join(RAW_DIR, "*", "*", "*", "*", "event-*-heatmap-*.json")
     heat = spark.read.option("multiLine", "true").json(heat_glob)
-    if heat.head(1):
-        heat = add_path_partitions(heat)
-        (heat
-         .withColumn("ingested_at", F.current_timestamp())
-         .write
-         .mode("append")
-         .partitionBy("tournament", "season", "gameweek")
-         .parquet(os.path.join(BRONZE_DIR, "heatmaps")))
-        print("✔ heatmaps → bronze")
+    _write(add_path_partitions(heat), "heatmaps")
 
-    # === 4) CSVs (fbref or others) — catch-all ===
+    # 4) CSV (fbref misc)
     csv_glob = os.path.join(RAW_DIR, "*", "*", "*", "*", "*.csv")
     csv = spark.read.option("header", "true").csv(csv_glob)
-    if csv.head(1):
-        csv = add_path_partitions(csv)
-        (csv
-         .withColumn("ingested_at", F.current_timestamp())
-         .write
-         .mode("append")
-         .partitionBy("tournament", "season", "gameweek")
-         .parquet(os.path.join(BRONZE_DIR, "csv_misc")))
-        print("✔ csv_misc → bronze")
+    _write(add_path_partitions(csv), "csv_misc")
 
-    print("✅ Bronze ingest completed")
+    print("✅ Bronze ingest complete")
 
 if __name__ == "__main__":
     main()

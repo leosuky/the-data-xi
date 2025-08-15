@@ -1,10 +1,11 @@
-# Core
-pyspark==3.5.1
-pyarrow
+# Spark + data
+pyspark
 pandas
-prefect
-python-dotenv
-
-# Optional/handy
+pyarrow
 duckdb
-sqlalchemy
+fastparquet
+
+# Utils
+python-dotenv
+requests
+psycopg2-binary

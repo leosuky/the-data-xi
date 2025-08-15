@@ -1,22 +1,30 @@
-# docker-compose.yml (root)
-version: '3.8'
+version: "3.8"
+
 services:
-  workspace:
-    build:
-      context: ..
-      dockerfile: .devcontainer/Dockerfile
+  app:
+    build: .
+    container_name: dataxi_app
     volumes:
-      - ..:/workspaces/the-data-xi:cached
-    command: sleep infinity
+      - .:/workspace
+      - ./.env:/workspace/.env
+    working_dir: /workspace
     environment:
-      - PIP_NO_CACHE_DIR=1
-  postgres:
+      PYTHONUNBUFFERED: "1"
+      SPARK_LOCAL_IP: "127.0.0.1"
+    ports:
+      - "4040:4040"     # Spark UI (shows while a job runs)
+    depends_on:
+      - db
+    stdin_open: true
+    tty: true
+
+  db:
     image: postgres:15
-    restart: unless-stopped
+    container_name: dataxi_db
     environment:
-      POSTGRES_USER: dev
-      POSTGRES_PASSWORD: dev
-      POSTGRES_DB: the_data_xi_dev
+      POSTGRES_USER: dataxi
+      POSTGRES_PASSWORD: dataxi
+      POSTGRES_DB: dataxi
     ports:
       - "5432:5432"
     volumes:

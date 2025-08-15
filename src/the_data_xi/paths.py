@@ -1,6 +1,6 @@
 import os
+from src.config import RAW_DIR, BRONZE_DIR, SILVER_DIR, GOLD_DIR
 
-RAW_DIR   = os.getenv("RAW_DIR", "./Done")
-BRONZE_DIR = os.getenv("BRONZE_DIR", "./warehouse/bronze")
-SILVER_DIR = os.getenv("SILVER_DIR", "./warehouse/silver")
-GOLD_DIR   = os.getenv("GOLD_DIR", "./warehouse/gold")
+def ensure_dirs():
+    for p in (BRONZE_DIR, SILVER_DIR, GOLD_DIR):
+        os.makedirs(p, exist_ok=True)

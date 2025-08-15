@@ -4,7 +4,7 @@ __pycache__/
 .env
 .DS_Store
 
-# data
+# Data
 /warehouse/
 /*.db
 *.parquet
@@ -13,3 +13,5 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+
+/1.readmes/
