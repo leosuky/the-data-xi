@@ -1,11 +1,5 @@
-# Spark + data
-pyspark
 pandas
-pyarrow
-duckdb
-fastparquet
-
-# Utils
-python-dotenv
-requests
+sqlalchemy
 psycopg2-binary
+duckdb
+python-dotenv

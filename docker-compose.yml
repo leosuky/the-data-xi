@@ -1,37 +1,16 @@
 services:
-  spark:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: the_data_xi_spark
-    volumes:
-      - .:/workspace
-    working_dir: /workspace
-    depends_on:
-      - postgres
-    environment:
-      - PYTHONUNBUFFERED=1
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_USER=the_data_xi
-      - POSTGRES_PASSWORD=the_data_xi
-      - POSTGRES_DB=the_data_xi
-    command: bash
-    stdin_open: true
-    tty: true
-
   postgres:
-    image: postgres:15-alpine
-    container_name: the_data_xi_postgres
-    restart: always
-    environment:
-      POSTGRES_USER: the_data_xi
-      POSTGRES_PASSWORD: the_data_xi
-      POSTGRES_DB: the_data_xi
+    image: postgres:latest
+    container_name: the_data_xi_postgres 
+    restart: always 
+    environment:                   
+      POSTGRES_USER: the_data_xi       
+      POSTGRES_PASSWORD: the_data_xi    
+      POSTGRES_DB: the_data_xi          
     ports:
-      - "5432:5432"
+      - "5432:5432"                  
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data  
 
 volumes:
-  postgres_data:
+  postgres_data:                 
