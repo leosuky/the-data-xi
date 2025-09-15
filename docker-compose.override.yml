@@ -1,0 +1,60 @@
+services:
+
+  api-server:
+    networks:
+      - the_data_xi_net
+
+  scheduler:
+    networks:
+      - the_data_xi_net
+
+  triggerer:
+    networks:
+      - the_data_xi_net
+
+  dag-processor:
+    networks:
+      - the_data_xi_net
+
+  db-migration:
+    networks:
+      - the_data_xi_net
+
+  postgres:
+    image: postgres:17
+    container_name: airflow_postgres 
+    restart: always 
+    environment:                   
+      POSTGRES_USER: postgres       
+      POSTGRES_PASSWORD: postgres    
+      POSTGRES_DB: postgres          
+    ports:
+      - "127.0.0.1:5432:5432"                  
+    volumes:
+      - postgres_airflow:/var/lib/postgresql_airflow/data
+    networks:
+      - the_data_xi_net
+
+  postgres_data_xi:
+    image: postgres:17
+    container_name: the_data_xi_postgres 
+    restart: always 
+    environment:                   
+      POSTGRES_USER: the_data_xi       
+      POSTGRES_PASSWORD: the_data_xi    
+      POSTGRES_DB: the_data_xi          
+    ports:
+      - "127.0.0.1:4500:5432"                  
+    volumes:
+      - the_data_xi_postgres:/var/lib/postgresql_the_data_xi/data
+    networks:
+      - the_data_xi_net
+      
+
+volumes:
+  the_data_xi_postgres:
+  postgres_airflow:       
+
+networks:
+  the_data_xi_net:
+    driver: bridge  

@@ -4,3 +4,5 @@
 psycopg2-binary
 pandas
 dbt-postgres
+apache-airflow-providers-oracle
+graphviz
