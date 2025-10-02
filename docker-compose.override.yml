@@ -3,6 +3,9 @@ services:
   api-server:
     networks:
       - the_data_xi_net
+    volumes:
+      - C:/Users/Leosuky/.dbt:/home/astro/.dbt
+      - ./the_data_xi_dbt://usr/local/airflow/the_data_xi_dbt
 
   scheduler:
     networks:

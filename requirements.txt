@@ -3,6 +3,9 @@
 
 psycopg2-binary
 pandas
-dbt-postgres
+pyarrow
+dbt-postgres==1.9.1
+apache-airflow-providers-amazon
 apache-airflow-providers-oracle
+oci
 graphviz

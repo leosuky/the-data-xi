@@ -1,4 +1,5 @@
 .git
+.oci
 .env
 .DS_Store
 airflow_settings.yaml
@@ -10,4 +11,7 @@ webserver_config.py
 airflow.cfg
 airflow.db
 documentation/
+docker-compose.override.yml
 data
+logs/
+z_dum.py

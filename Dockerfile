@@ -6,4 +6,4 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 4. Install dbt Core. This gives us the 'dbt' command inside our container.
-RUN pip install --no-cache-dir dbt-core
+RUN pip install --no-cache-dir dbt-core==1.9.1

@@ -1,0 +1,29 @@
+version: 2
+
+sources:
+  - name: the_data_xi_raw
+    schema: raw
+    tables:
+      - name: game_summary
+      - name: advanced_pass_types
+      - name: advanced_passing
+      - name: advanced_defending
+      - name: advanced_possession
+      - name: misc_stats
+      - name: gk_stats
+      - name: shots
+      - name: tournaments
+      - name: seasons
+      - name: advanced_shot_data
+      - name: match_stats
+      - name: lineup
+      - name: player_stats
+      - name: odds_data
+      - name: match_details
+      - name: managers
+      - name: referee
+      - name: teams
+      - name: player_data
+      - name: misc_json_data
+
+# @id:files.associations

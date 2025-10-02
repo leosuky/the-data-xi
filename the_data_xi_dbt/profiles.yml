@@ -1,0 +1,12 @@
+the_data_xi_dbt:
+  outputs:
+    dev:
+      dbname: the_data_xi
+      host: the_data_xi_postgres
+      pass: the_data_xi
+      port: 5432
+      schema: staging
+      threads: 1
+      type: postgres
+      user: the_data_xi
+  target: dev

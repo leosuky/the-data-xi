@@ -1,9 +1,12 @@
 from airflow.decorators import dag, task
-# from airflow.providers.standard.operators.python import PythonOperator
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.providers.postgres.hooks.postgres import PostgresHook
 from datetime import datetime
-from sqlalchemy import create_engine
-from airflow.sdk import Connection
+import oci
 import os
+
+PROFILES_DIR = '/home/astro/.dbt'
+DBT_PROJECT_ROOT = "/usr/local/airflow/the_data_xi_dbt"
 
 @dag(
     description='A dag used to test the functionality of things',
@@ -31,28 +34,21 @@ def dummy_dag():
             "USER": DB_USER
         }
     
+    # run_dbt_model = BashOperator(
+    #     task_id='run_dbt_model',
+    #     # bash_command='cd /usr/local/airflow/the_data_xi_dbt && dbt debug --profiles-dir /usr/local/airflow/the_data_xi_dbt',
+    #     bash_command='dbt debug',
+    #     cwd='/usr/local/airflow/the_data_xi_dbt'
+    # )
     @task
-    def task_2(value):
-        xd = Connection.get("the_data_xi_postgres")
-
-        print(f"{xd.host}@{xd.port}/{xd.login}:{xd.password}/{xd.schema}")
-
-        # engine = create_engine(f"postgresql://{value['USER']}:{value['PASSWORD']}@{value['HOST']}:{value['PORT']}/{value['DB_NAME']}")
-        uri = xd.get_uri()
-        if uri.startswith("postgres://"):
-            uri = uri.replace("postgres://", "postgresql://", 1)
-            
-        engine = create_engine(uri)
-
+    def task2():
+        hook = PostgresHook(postgres_conn_id="the_data_xi_postgres")
         try:
-            conn = engine.connect()
-            print(conn)
-            print("Connection to Database was successful")
+            xd = hook.get_records(f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'raw' AND table_name   = 'misc_json_data';")
+            print(f'Table  == {xd}')
+        except Exception as err:
+            print(f"An Error occured: {err}")
 
-            conn.close()
-        except Exception as e:
-            print(e)
-
-    task_2(task_1())
+    task_1() >> task2()
 
 dummy_dag()
