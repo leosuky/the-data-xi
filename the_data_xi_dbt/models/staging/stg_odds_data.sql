@@ -1,6 +1,5 @@
 {{
     config(
-        alias='odds_data',
         unique_key='match_id',
         incremental_strategy='append',
     )

@@ -1,6 +1,5 @@
 {{
     config(
-        alias='player_stats',
         unique_key=['match_id', 'player_id'],
         incremental_strategy='append',
     )

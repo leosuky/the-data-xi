@@ -1,6 +1,5 @@
 {{
     config(
-        alias='gk_stats',
         unique_key='match_id',
         incremental_strategy='append',
     )

@@ -1,6 +1,5 @@
 {{
     config(
-        alias='game_summary',
         unique_key='match_id',
         incremental_strategy='append',
     )

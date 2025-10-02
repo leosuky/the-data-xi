@@ -11,10 +11,13 @@ from airflow.providers.standard.operators.bash import BashOperator
 
 
 CONFIG = oci.config.from_file(file_location="/usr/local/airflow/.oci/config")
+NOTIFICATION = oci.ons.NotificationDataPlaneClient(CONFIG)
+TOPIC_ID = 'ocid1.onstopic.oc1.iad.amaaaaaad6m4taqax45toalajzw4abfbzfued6oid23h7rdjws53bbie7m5a'
 OBJECT_STORAGE = oci.object_storage.ObjectStorageClient(CONFIG)
 NAMESPACE = OBJECT_STORAGE.get_namespace().data
 BUCKET_NAME = "the_data_xi"
 BASE_PREFIX = 'Done/'
+DEST_PREFIX = 'Processed/'
 
 
 # Convert flat folder structure to nested.
@@ -85,6 +88,22 @@ def parse_file_name(str_path: str) -> str:
     else:
         return str_path
 
+def move_file_between_folders(object_name):
+
+    # Source and destination object names
+    src_object = f"{BASE_PREFIX}{object_name}"
+    dest_object = f"{DEST_PREFIX}{object_name}"
+
+    # 1. Get object from source
+    response = OBJECT_STORAGE.get_object(NAMESPACE, BUCKET_NAME, src_object)
+
+    # 2. Upload object to destination
+    OBJECT_STORAGE.put_object(NAMESPACE, BUCKET_NAME, dest_object, response.data.content)
+
+    # 3. Delete original
+    OBJECT_STORAGE.delete_object(NAMESPACE, BUCKET_NAME, src_object)
+
+    print(f"Moved {src_object} -> {dest_object}")
 
 def download_objects_to_memory(prefix: str, files: list):
 
@@ -120,11 +139,13 @@ def connect_to_postgres():
 def ensure_schema_match_raw_table(df, table_name, conn):
     """
     Checks the database schema against the DataFrame schema and adds missing columns (DDL).
-    This function must run BEFORE df.to_sql(if_exists='append').
     """
     try:
         # 1. Get existing column names from PostgreSQL information schema
         with conn as connection:
+            # create the table if it doesn't exist
+            connection.execute(f"CREATE TABLE IF NOT EXISTS raw.{table_name} ()")
+
             existing_cols = [
                 row[0] for row in connection.execute(
                     f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'raw' AND table_name = '{table_name}'"
@@ -316,11 +337,32 @@ def process_data(combo_id: str, all_files_in_memory: dict) -> pd.DataFrame:
 
     return all_data
 
-
-test_dbt = BashOperator(
-        task_id="test_dbt",
-        bash_command="cd /usr/local/airflow/the_data_xi_dbt && dbt run --models staging"
+def notify_oci(context):
+    
+    dag_run = context.get("dag_run")
+    task_instance = context.get("task_instance")
+    
+    dag_id = dag_run.dag_id
+    task_id = task_instance.task_id
+    state = task_instance.state
+    
+    body = (
+        # Use the string variable task_id directly (not task_id.task_id)
+        f"Task {task_id} failed in DAG {dag_id}.\n" 
+        # Access execution_date from the dag_run object
+        f"Execution Time: {dag_run.execution_date}\n" 
+        # Access log_url from the task_instance object
+        f"Log URL: {task_instance.log_url}\n" 
     )
+    
+    NOTIFICATION.publish_message(
+        TOPIC_ID,
+        oci.ons.models.MessageDetails(
+            title=f"Airflow Alert: {state.upper()}",
+            body=body
+        )
+    )
+
 
 def run_etl_oci():
     # Get all the files in our bucket in a nested folder structure
@@ -366,8 +408,4 @@ def run_etl_oci():
                     raise(f"Error storing table '{table_name}' for match {combo_id}: {err}")
 
             print(f"Successfully pushed data to postgres for match {combo_id}")
-
-            print("Pushing Data to staging schema")
-            test_dbt()
-            print('Done')
 

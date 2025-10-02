@@ -1,6 +1,5 @@
 {{
     config(
-        alias='tournaments',
         unique_key='tournament_id',
         incremental_strategy='append',
     )

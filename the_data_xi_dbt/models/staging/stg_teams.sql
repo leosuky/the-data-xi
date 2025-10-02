@@ -1,6 +1,5 @@
 {{
     config(
-        alias='teams',
         unique_key='team_id',
         incremental_strategy='append',
     )

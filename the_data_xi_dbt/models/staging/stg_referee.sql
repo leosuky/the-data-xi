@@ -1,6 +1,5 @@
 {{
     config(
-        alias='referee',
         unique_key='id',
         incremental_strategy='merge',
     )

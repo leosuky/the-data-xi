@@ -1,6 +1,5 @@
 {{
     config(
-        alias='managers',
         unique_key='id',
         incremental_strategy='append',
     )

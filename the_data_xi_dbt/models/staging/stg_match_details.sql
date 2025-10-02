@@ -1,6 +1,5 @@
 {{
     config(
-        alias='match_details',
         unique_key='id',
         incremental_strategy='append',
         partition_by={

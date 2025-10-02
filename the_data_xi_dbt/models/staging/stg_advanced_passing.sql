@@ -1,6 +1,5 @@
 {{
     config(
-        alias='advanced_passing',
         unique_key='match_id',
         incremental_strategy='append',
     )

@@ -1,6 +1,5 @@
 {{
     config(
-        alias='match_stats',
         unique_key='match_id',
         incremental_strategy='append',
     )

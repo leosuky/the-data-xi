@@ -22,7 +22,9 @@ DBT_COMMAND = "dbt run --select staging --profiles-dir /usr/local/airflow/the_da
     catchup=False,
     tags=['etl', 'the_data_xi', 'football', 'Oracle Cloud', 'OCI'],
     default_args={
-        'postgres_conn_id': 'the_data_xi_postgres'
+        'postgres_conn_id': 'the_data_xi_postgres',
+        'on_failure_callback': etl_oci.notify_oci,
+        'on_success_callback': etl_oci.notify_oci
     }
 )
 def etl_copy_data_xi():
@@ -140,6 +142,22 @@ def etl_copy_data_xi():
     # Map the unified task over the list of matches
     final_mapped_task = process_load_and_dbt_single_task.expand(match_info=match_list)
 
-    final_mapped_task
+    @task
+    def move_data_to_processed_bucket(match_info: list):
+        
+        for game in match_info:
+            combo_id = game["combo_id"]
+            prefix = game["prefix"]
+            files = game["files"]
+
+            for file in files:
+                object_name = f'{prefix}/{file}'
+                etl_oci.move_file_between_folders(object_name)
+
+            log.info(f'Successfully moved all files for {combo_id}')
+
+
+    # After all files are processed, move them.
+    final_mapped_task >> move_data_to_processed_bucket(match_list)
 
 etl_copy_data_xi()

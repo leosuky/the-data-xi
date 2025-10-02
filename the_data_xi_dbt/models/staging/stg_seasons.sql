@@ -1,6 +1,5 @@
 {{
     config(
-        alias='seasons',
         unique_key='id',
         incremental_strategy='append',
     )

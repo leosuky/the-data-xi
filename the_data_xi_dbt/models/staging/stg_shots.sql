@@ -1,6 +1,5 @@
 {{
     config(
-        alias='shots',
         unique_key='id',
         incremental_strategy='append',
     )
