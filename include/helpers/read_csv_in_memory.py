@@ -1,4 +1,27 @@
 import pandas as pd
+import numpy as np
+
+def convert_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Converts columns that are fully numeric (or numeric-like) to proper numeric dtype.
+    Keeps columns like '90+1' or mixed types as text.
+    """
+    for col in df.columns:
+        sample = df[col].dropna().astype(str).head(20)
+        
+        # Skip conversion if sample contains football-style added time (e.g., 90+1)
+        if sample.str.contains(r'^\d+\+\d+$').any():
+            continue
+
+        # Try converting to numeric — if most values succeed, cast the column
+        coerced = pd.to_numeric(df[col], errors='coerce')
+        success_ratio = coerced.notna().mean()
+
+        if success_ratio > 0.9:  # 90%+ of values are valid numbers
+            df[col] = coerced
+
+    return df
+
 
 
 # Apparently loading files into memory turns numbers into strings
@@ -14,8 +37,8 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
 def game_summary(home_path: list, away_path: list, combo_id: str, match_id: int) -> pd.DataFrame:
 
-    home_summary = pd.DataFrame(home_path).astype('int64', errors='ignore')
-    away_summary = pd.DataFrame(away_path).astype('int64', errors='ignore')
+    home_summary = convert_numeric_columns(pd.DataFrame(home_path))
+    away_summary = convert_numeric_columns(pd.DataFrame(away_path))
 
     home_summary.iloc[-1, 0] = 'Home Team Total'
     away_summary.iloc[-1, 0] = 'Away Team Total'
@@ -33,8 +56,8 @@ def game_summary(home_path: list, away_path: list, combo_id: str, match_id: int)
 
 def advanced_passing(home_path: list, away_path: list, combo_id: str, match_id: int) -> pd.DataFrame:
     
-    home_passing = pd.DataFrame(home_path).astype('int64', errors='ignore')
-    away_passing = pd.DataFrame(away_path).astype('int64', errors='ignore')
+    home_passing = convert_numeric_columns(pd.DataFrame(home_path))
+    away_passing = convert_numeric_columns(pd.DataFrame(away_path))
 
     home_passing.iloc[-1, 0] = 'Home Team Total'
     away_passing.iloc[-1, 0] = 'Away Team Total'
@@ -52,8 +75,8 @@ def advanced_passing(home_path: list, away_path: list, combo_id: str, match_id: 
 
 def adv_pass_types(home_path: list, away_path: list, combo_id: str, match_id: int) -> pd.DataFrame:
     
-    home_pass_types = pd.DataFrame(home_path).astype('int64', errors='ignore')
-    away_pass_types = pd.DataFrame(away_path).astype('int64', errors='ignore')
+    home_pass_types = convert_numeric_columns(pd.DataFrame(home_path))
+    away_pass_types = convert_numeric_columns(pd.DataFrame(away_path))
 
     home_pass_types.iloc[-1, 0] = 'Home Team Total'
     away_pass_types.iloc[-1, 0] = 'Away Team Total'
@@ -71,8 +94,8 @@ def adv_pass_types(home_path: list, away_path: list, combo_id: str, match_id: in
 
 def advanced_defending(home_path: list, away_path: list, combo_id: str, match_id: int) -> pd.DataFrame:
     
-    home_defence = pd.DataFrame(home_path).astype('int64', errors='ignore')
-    away_defence = pd.DataFrame(away_path).astype('int64', errors='ignore')
+    home_defence = convert_numeric_columns(pd.DataFrame(home_path))
+    away_defence = convert_numeric_columns(pd.DataFrame(away_path))
 
     home_defence.iloc[-1, 0] = 'Home Team Total'
     away_defence.iloc[-1, 0] = 'Away Team Total'
@@ -90,8 +113,8 @@ def advanced_defending(home_path: list, away_path: list, combo_id: str, match_id
 
 def advanced_possession(home_path: list, away_path: list, combo_id: str, match_id: int) -> pd.DataFrame:
     
-    home_possession = pd.DataFrame(home_path).astype('int64', errors='ignore')
-    away_possession = pd.DataFrame(away_path).astype('int64', errors='ignore')
+    home_possession = convert_numeric_columns(pd.DataFrame(home_path))
+    away_possession = convert_numeric_columns(pd.DataFrame(away_path))
 
     home_possession.iloc[-1, 0] = 'Home Team Total'
     away_possession.iloc[-1, 0] = 'Away Team Total'
@@ -109,8 +132,8 @@ def advanced_possession(home_path: list, away_path: list, combo_id: str, match_i
 
 def misc_stats(home_path: list, away_path: list, combo_id: str, match_id: int) -> pd.DataFrame:
     
-    home_misc = pd.DataFrame(home_path).astype('int64', errors='ignore')
-    away_misc = pd.DataFrame(away_path).astype('int64', errors='ignore')
+    home_misc = convert_numeric_columns(pd.DataFrame(home_path))
+    away_misc = convert_numeric_columns(pd.DataFrame(away_path))
 
     home_misc.iloc[-1, 0] = 'Home Team Total'
     away_misc.iloc[-1, 0] = 'Away Team Total'
@@ -128,8 +151,8 @@ def misc_stats(home_path: list, away_path: list, combo_id: str, match_id: int) -
 
 def gk_stats(home_path: list, away_path: list, combo_id: str, match_id: int) -> pd.DataFrame:
     
-    home_gk = pd.DataFrame(home_path).astype('int64', errors='ignore')
-    away_gk = pd.DataFrame(away_path).astype('int64', errors='ignore')
+    home_gk = convert_numeric_columns(pd.DataFrame(home_path))
+    away_gk = convert_numeric_columns(pd.DataFrame(away_path))
 
     home_gk['is_home_team'] = True
     away_gk['is_home_team'] = False
@@ -143,8 +166,8 @@ def gk_stats(home_path: list, away_path: list, combo_id: str, match_id: int) -> 
 
 def shot_data(path: list, combo_id: str, match_id: int) -> pd.DataFrame:
     
-    full = pd.DataFrame(path).astype('int64', errors='ignore')
-
+    full = convert_numeric_columns(pd.DataFrame(path)) 
+    
     full = clean_dataframe(full)
     full = full.dropna(subset=["Minute"])
 

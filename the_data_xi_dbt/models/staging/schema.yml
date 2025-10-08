@@ -1,0 +1,386 @@
+version: 2
+
+
+models:
+  - name: stg_game_summary
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+  
+  - name: stg_advanced_pass_types
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+  
+  - name: stg_advanced_passing
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+  
+  - name: stg_advanced_defending
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+  
+  - name: stg_advanced_possession
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+  
+  - name: stg_misc_stats
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+  
+  - name: stg_gk_stats
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+  
+  - name: stg_shots
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+      - name: player_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_player_data')
+              field: player_id
+  
+  - name: stg_tournaments
+    columns:
+      - name: tournament_id
+        tests:
+          - not_null
+          - unique
+  
+  - name: stg_seasons
+    columns:
+      - name: tournament_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_tournaments')
+              field: tournament_id
+      - name: id
+        tests:
+          - not_null
+          - unique
+  
+  - name: stg_advanced_shot_data
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+      - name: xg
+        tests:
+          - not_null
+  
+  - name: stg_match_stats
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+  
+  - name: stg_lineup
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+      - name: team_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_teams')
+              field: team_id
+      - name: player_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_player_data')
+              field: player_id
+  
+  - name: stg_player_stats
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+      - name: team_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_teams')
+              field: team_id
+      - name: player_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_player_data')
+              field: player_id
+  
+  - name: stg_odds_data
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+  
+  - name: stg_match_details
+    columns:
+      - name: referee_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_referee')
+              field: id
+      - name: home_team_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_teams')
+              field: team_id
+      - name: away_team_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_teams')
+              field: team_id
+      - name: motm_player_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_player_data')
+              field: player_id
+      - name: season_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_seasons')
+              field: id
+      - name: id
+        tests:
+          - not_null
+          - unique
+      - name: home_manager_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_managers')
+              field: id
+      - name: away_manager_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_managers')
+              field: id
+      - name: tournament_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_tournaments')
+              field: tournament_id
+      - name: starttimestamp
+        tests:
+          - not_null
+  
+  - name: stg_managers
+    columns:
+      - name: name
+        tests:
+          - not_null
+      - name: id
+        tests:
+          - not_null
+          - unique
+  
+  - name: stg_referee
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+  
+  - name: stg_teams
+    columns:
+      - name: stadium
+        tests:
+          - not_null
+      - name: stadium_capacity
+        tests:
+          - not_null
+      - name: name
+        tests:
+          - not_null
+      - name: team_id
+        tests:
+          - not_null
+          - unique
+      - name: founded_date
+        tests:
+          - not_null
+  
+  - name: stg_player_data
+    columns:
+      - name: nationality
+        tests:
+          - not_null
+      - name: name
+        tests:
+          - not_null
+      - name: birth_date
+        tests:
+          - not_null
+      - name: player_id
+        tests:
+          - not_null
+          - unique
+      - name: position
+        tests:
+          - not_null
+  
+  - name: stg_misc_json_data
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              to: ref('stg_match_details')
+              field: id
+      - name: combo_id
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              to: ref('stg_match_details')
+              field: combo_id
+
+
+  # Note that Singular tests are tests that live in the `tests` folder and they return nothing to pass

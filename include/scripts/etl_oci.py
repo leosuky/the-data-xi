@@ -1,7 +1,7 @@
 import os, io, json, csv, oci
 import pandas as pd
 import pathlib, collections
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.dialects.postgresql import JSONB
 from include.helpers import read_csv_in_memory as rdmcsv
 from include.helpers import read_json_in_memory as rdmjson
@@ -16,12 +16,12 @@ TOPIC_ID = 'ocid1.onstopic.oc1.iad.amaaaaaad6m4taqax45toalajzw4abfbzfued6oid23h7
 OBJECT_STORAGE = oci.object_storage.ObjectStorageClient(CONFIG)
 NAMESPACE = OBJECT_STORAGE.get_namespace().data
 BUCKET_NAME = "the_data_xi"
-BASE_PREFIX = 'Done/'
-DEST_PREFIX = 'Processed/'
+BASE_PREFIX = 'Processed/'
+DEST_PREFIX = 'Done/'
 
 
 # Convert flat folder structure to nested.
-def build_tree(object_list, base_prefix="Done/"):
+def build_tree(object_list, base_prefix=BASE_PREFIX):
     tree = collections.defaultdict(list)
     for obj in object_list:
         # Remove base prefix
@@ -127,7 +127,7 @@ def connect_to_postgres():
     if uri.startswith("postgres://"):
         uri = uri.replace("postgres://", "postgresql://", 1)
         
-    engine = create_engine(uri)
+    engine = create_engine(uri, isolation_level="AUTOCOMMIT")
     try:
         conn = engine.connect()
         print(conn)
@@ -140,56 +140,57 @@ def ensure_schema_match_raw_table(df, table_name, conn):
     """
     Checks the database schema against the DataFrame schema and adds missing columns (DDL).
     """
+    connection = conn
     try:
-        # 1. Get existing column names from PostgreSQL information schema
-        with conn as connection:
-            # create the table if it doesn't exist
-            connection.execute(f"CREATE TABLE IF NOT EXISTS raw.{table_name} ()")
+        # create the table if it doesn't exist
+        connection.execute(f"CREATE TABLE IF NOT EXISTS raw.{table_name} ()")
 
-            existing_cols = [
-                row[0] for row in connection.execute(
-                    f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'raw' AND table_name = '{table_name}'"
-                )
-            ]
+        existing_cols = [
+            row[0] for row in connection.execute(
+                f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'raw' AND table_name = '{table_name}'"
+            )
+        ]
 
-            # Make column names lower case
-            df.columns = df.columns.str.lower()
-            df_cols = df.columns.values.tolist()
+        # Make column names lower case
+        df.columns = df.columns.str.lower()
+        df_cols = df.columns.values.tolist()
 
-            # set difference of columns
-            cols_diff = list(set(df_cols) - set(existing_cols))
+        # set difference of columns
+        cols_diff = list(set(df_cols) - set(existing_cols))
 
-            # Check if the columns match
-            if len(cols_diff) == 0:
-                print("Same Exact Columns! All good")
-                return
+        # Check if the columns match
+        if len(cols_diff) == 0:
+            print("Same Exact Columns! All good")
+            return
+        
+        # 2. Iterate through DataFrame columns and add missing ones
+        # for col_name, dtype in df.dtypes.items():
+        #     col_name_lower = col_name.lower() # Already lowercased by the calling function, but safe to check
+
+        for col_name in cols_diff:
+            dtype = df[col_name].dtype
+            col_name_lower = col_name.lower()
             
-            # 2. Iterate through DataFrame columns and add missing ones
-            # for col_name, dtype in df.dtypes.items():
-            #     col_name_lower = col_name.lower() # Already lowercased by the calling function, but safe to check
-
-            for col_name in cols_diff:
-                dtype = df[col_name].dtype
-                col_name_lower = col_name.lower()
+            if col_name_lower not in existing_cols:
+                # Determine the SQL type. Use TEXT as a safe default for JSON-heavy data.
+                sql_type = 'TEXT'
                 
-                if col_name_lower not in existing_cols:
-                    # Determine the SQL type. Use TEXT as a safe default for JSON-heavy data.
-                    sql_type = 'TEXT'
+                if 'bool' in str(dtype): # Check for pandas boolean type
+                    sql_type = 'BOOLEAN'
+                elif dtype == 'object':
+                        # Check for dictionary/list objects to map to JSONB/TEXT
+                    first_val = df[col_name].dropna().iloc[0] if not df[col_name].isnull().all() else None
+                    if isinstance(first_val, (dict, list)):
+                        sql_type = 'JSONB'
                     
-                    if dtype == 'object':
-                         # Check for dictionary/list objects to map to JSONB/TEXT
-                        first_val = df[col_name].dropna().iloc[0] if not df[col_name].isnull().all() else None
-                        if isinstance(first_val, (dict, list)):
-                            sql_type = 'JSONB'
-                        
-                    elif 'int' in str(dtype):
-                        sql_type = 'BIGINT'
-                    elif 'float' in str(dtype):
-                        sql_type = 'DECIMAL'
+                elif 'int' in str(dtype):
+                    sql_type = 'BIGINT'
+                elif 'float' in str(dtype):
+                    sql_type = 'DECIMAL'
 
-                    # Execute DDL to add the new column
-                    print(f"Schema Evolution: Adding column raw.{table_name}.{col_name_lower} as {sql_type}")
-                    connection.execute(f"ALTER TABLE raw.{table_name} ADD COLUMN {col_name_lower} {sql_type};")
+                # Execute DDL to add the new column
+                print(f"Schema Evolution: Adding column raw.{table_name}.{col_name_lower} as {sql_type}")
+                connection.execute(text(f'ALTER TABLE raw.{table_name} ADD COLUMN IF NOT EXISTS"{col_name_lower}" {sql_type};'))
 
     except Exception as e:
         raise(f"Error during schema check/evolution for {table_name}: {e}")
@@ -276,19 +277,19 @@ def process_data(combo_id: str, all_files_in_memory: dict) -> pd.DataFrame:
             match_details["combo_id"], match_details["match_id"]
         )
         adv_pass_types = rdmcsv.adv_pass_types(
-            all_files_in_memory["Home_Team_Passing.csv"], all_files_in_memory["Home_Team_Passing.csv"],
+            all_files_in_memory["Home_Team_Passing.csv"], all_files_in_memory["Away_Team_Passing.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
         advanced_passing = rdmcsv.advanced_passing(
-            all_files_in_memory["Home_Team_Pass_Types.csv"], all_files_in_memory["Home_Team_Pass_Types.csv"],
+            all_files_in_memory["Home_Team_Pass_Types.csv"], all_files_in_memory["Away_Team_Pass_Types.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
         advanced_defending = rdmcsv.advanced_defending(
-            all_files_in_memory["Home_Team_Defense.csv"], all_files_in_memory["Home_Team_Defense.csv"],
+            all_files_in_memory["Home_Team_Defense.csv"], all_files_in_memory["Away_Team_Defense.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
         advanced_possession = rdmcsv.advanced_possession(
-            all_files_in_memory["Home_Team_Possession.csv"], all_files_in_memory["Home_Team_Possession.csv"],
+            all_files_in_memory["Home_Team_Possession.csv"], all_files_in_memory["Away_Team_Possession.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
         misc_stats = rdmcsv.misc_stats(
@@ -321,7 +322,7 @@ def process_data(combo_id: str, all_files_in_memory: dict) -> pd.DataFrame:
         "gk_stats": gk_stats,
         "shots": shots,
         "tournaments": tournament_data["tournament"],
-        "seaasons": tournament_data["season"],
+        "seasons": tournament_data["season"],
         "advanced_shot_data": shot_data,
         "match_stats": match_stats,
         "lineup": lineup,
@@ -350,9 +351,9 @@ def notify_oci(context):
         # Use the string variable task_id directly (not task_id.task_id)
         f"Task {task_id} failed in DAG {dag_id}.\n" 
         # Access execution_date from the dag_run object
-        f"Execution Time: {dag_run.execution_date}\n" 
+        # f"Execution Time: {dag_run.execution_date}\n" 
         # Access log_url from the task_instance object
-        f"Log URL: {task_instance.log_url}\n" 
+        # f"Log URL: {task_instance.log_url}\n" 
     )
     
     NOTIFICATION.publish_message(
