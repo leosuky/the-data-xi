@@ -1,7 +1,7 @@
 {{
     config(
         unique_key='team_id',
-        incremental_strategy='append',
+        incremental_strategy='merge',
     )
 }}
 

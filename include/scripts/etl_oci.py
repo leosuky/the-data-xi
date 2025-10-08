@@ -262,12 +262,17 @@ def process_data(combo_id: str, all_files_in_memory: dict) -> pd.DataFrame:
             teams_and_ref["home_team_id"], teams_and_ref["away_team_id"]
         )
 
+        missing_players = rdmjson.missing_players(
+            all_files_in_memory["lineups"], match_details["match_id"], match_details["combo_id"], 
+            teams_and_ref["home_team_id"], teams_and_ref["away_team_id"]
+        )
+
         match_stats = rdmjson.match_stats(all_files_in_memory["statistics"], match_details["match_id"], match_details["combo_id"])
 
         miscellaneous_data = rdmjson.misc_json_data(
             all_files_in_memory["average_positions"], all_files_in_memory["comments"], all_files_in_memory["graph"],
             all_files_in_memory["heatmap_home_team"], all_files_in_memory["heatmap_away_team"], match_details["match_id"],
-            match_details["combo_id"]
+            match_details["combo_id"], full_heatmaps=all_files_in_memory.get('heatmaps', {'None': None})
         )
         # ================== ========================================================>
 
@@ -326,6 +331,7 @@ def process_data(combo_id: str, all_files_in_memory: dict) -> pd.DataFrame:
         "advanced_shot_data": shot_data,
         "match_stats": match_stats,
         "lineup": lineup,
+        "missing_players": missing_players,
         "player_stats": player_stats,
         "odds_data": odds_data,
         "match_details": match_details["match"],

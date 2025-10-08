@@ -392,6 +392,56 @@ def lineups_table(lineups: dict, match_id: int, combo_id: str, home_id: int, awa
 
     return lineup_dframe
 
+def missing_players(lineups: dict, match_id: int, combo_id: str, home_id: int, away_id: int) -> pd.DataFrame:
+
+    home = lineups['home']
+    away = lineups['away']
+
+    missing_players = []
+    if 'missingPlayers' in home.keys():
+        for i in range(len(home['missingPlayers'])):
+            row = {}
+            row['match_id'] = match_id
+            row['combo_id'] = combo_id
+            row['team_id'] = home_id
+            row['is_home_team'] = True
+            row['player_id'] = home['missingPlayers'][i]['player']['id']
+            row['name'] = home['missingPlayers'][i]['player']['name']
+            row['type'] = home['missingPlayers'][i].get('type', None)
+            row['reason'] = home['missingPlayers'][i].get('reason', None)
+            row['description'] = home['missingPlayers'][i].get('description', None)
+            row['external_type'] = home['missingPlayers'][i].get('externalType', None)
+            row['expected_end_date'] = home['missingPlayers'][i].get('expectedEndDate', None)
+
+            missing_players.append(row)
+
+    if 'missingPlayers' in away.keys():
+        for i in range(len(away['missingPlayers'])):
+            row = {}
+            row['match_id'] = match_id
+            row['combo_id'] = combo_id
+            row['team_id'] = away_id
+            row['is_home_team'] = False
+            row['player_id'] = away['missingPlayers'][i]['player']['id']
+            row['name'] = away['missingPlayers'][i]['player']['name']
+            row['type'] = away['missingPlayers'][i].get('type', None)
+            row['reason'] = away['missingPlayers'][i].get('reason', None)
+            row['description'] = away['missingPlayers'][i].get('description', None)
+            row['external_type'] = away['missingPlayers'][i].get('externalType', None)
+            row['expected_end_date'] = away['missingPlayers'][i].get('expectedEndDate', None)
+
+            missing_players.append(row)
+
+    if missing_players:
+        missing_df = pd.DataFrame(missing_players)
+    else:
+        missing_df = pd.DataFrame(columns=[
+            'match_id', 'combo_id', 'team_id', 'is_home_team', 'player_id', 'name',
+            'type', 'reason', 'description', 'external_type', 'expected_end_date'
+        ])
+
+    return missing_df
+
 
 def match_stats(statistics: dict, match_id: int, combo_id: str) -> pd.DataFrame:
 
@@ -420,7 +470,9 @@ def match_stats(statistics: dict, match_id: int, combo_id: str) -> pd.DataFrame:
 
     return match_stats_df
 
-def misc_json_data(avg_positions: dict, comments: dict, graph: dict, home_heatmap: dict, away_heatmap: dict, match_id: int, combo_id: str) -> pd.DataFrame:
+def misc_json_data(avg_positions: dict, comments: dict, graph: dict, home_heatmap: dict, away_heatmap: dict,
+                    match_id: int, combo_id: str, full_heatmaps: dict
+                ) -> pd.DataFrame:
 
     data = [{
         "match_id": match_id,
@@ -429,7 +481,8 @@ def misc_json_data(avg_positions: dict, comments: dict, graph: dict, home_heatma
         "commentary": comments,
         "match_momentum_graph": graph,
         "home_heatmap": home_heatmap,
-        "away_heatmap": away_heatmap
+        "away_heatmap": away_heatmap,
+        "full_player_heatmaps": full_heatmaps
     }]
 
     data_df = pd.DataFrame(data)

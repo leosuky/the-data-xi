@@ -17,6 +17,7 @@ sources:
       - name: advanced_shot_data
       - name: match_stats
       - name: lineup
+      - name: missing_players
       - name: player_stats
       - name: odds_data
       - name: match_details

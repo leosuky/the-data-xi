@@ -1,7 +1,7 @@
 {{
     config(
         unique_key='player_id',
-        incremental_strategy='append',
+        incremental_strategy='merge',
     )
 }}
 
