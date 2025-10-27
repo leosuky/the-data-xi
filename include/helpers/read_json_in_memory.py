@@ -292,6 +292,7 @@ def shots_table(shots: dict, match_id: int, combo_id: str) -> pd.DataFrame:
         shot_data.append(row)
 
     shot_df = pd.DataFrame(shot_data)
+    shot_df['row_id'] = shot_df.index
 
     return shot_df
 

@@ -208,7 +208,7 @@ models:
               to: ref('stg_player_data')
               field: player_id
   
-  - name: missing_players
+  - name: stg_missing_players
     columns:
       - name: match_id
         tests:

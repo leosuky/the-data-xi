@@ -34,4 +34,12 @@ models:
     # Config indicated by + and applies to all files under models/staging/
     staging:
       +materialized: incremental
-      # +schema: staging this causes a double naming
+      +schema: staging
+    
+    intermediate:
+      +materialized: view
+      +schema: intermediate
+
+    marts:
+      +materialized: incremental
+      +schema: marts

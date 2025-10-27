@@ -10,13 +10,23 @@ with source_data as (
     select
         {{ dbt_utils.star(from=source('the_data_xi_raw', 'teams'), quote_identifiers=True) }}
     from {{ source('the_data_xi_raw', 'teams') }}
+),
+
+deduplicated as (
+    select
+        source_data.*,
+        row_number() over (
+            partition by source_data.team_id
+        ) as rn
+    from source_data
 )
 
--- 2. Final select ensures schema evolution
-select *
-from source_data
+select
+    *
+from deduplicated
+where rn = 1
 
 {% if is_incremental() %}
   -- Only insert matches not already present in target
-  where team_id not in (select team_id from {{ this }})
+  and team_id not in (select team_id from {{ this }})
 {% endif %}

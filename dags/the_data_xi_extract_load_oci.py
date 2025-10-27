@@ -36,7 +36,7 @@ def the_data_xi_etl_oci():
         # Transform the result into a list of dicts suitable for mapping
         map_list = []
         for prefix, files in nested_files.items():
-            if len(files) < 28: # Reduced to 1 for generic safety; check your file count
+            if len(files) < 28:
                 raise(f"Error!! The total files are less than 28 for Folder: {prefix}")
             
             # Extract combo_id (last element after splitting by /)

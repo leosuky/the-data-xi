@@ -16,8 +16,11 @@ TOPIC_ID = 'ocid1.onstopic.oc1.iad.amaaaaaad6m4taqax45toalajzw4abfbzfued6oid23h7
 OBJECT_STORAGE = oci.object_storage.ObjectStorageClient(CONFIG)
 NAMESPACE = OBJECT_STORAGE.get_namespace().data
 BUCKET_NAME = "the_data_xi"
-BASE_PREFIX = 'Processed/'
-DEST_PREFIX = 'Done/'
+BASE_PREFIX = 'Done/'
+DEST_PREFIX = 'Processed/'
+
+# BASE_PREFIX = 'Processed/'
+# DEST_PREFIX = 'Done/'
 
 
 # Convert flat folder structure to nested.
@@ -55,20 +58,20 @@ def process_object_in_memory(bucket_name: str, object_name: str) -> dict | list:
 
     # Fetch object
     response = OBJECT_STORAGE.get_object(NAMESPACE, bucket_name, object_name)
-    content = response.data.content.decode("utf-8")
 
     if object_name.endswith(".json"):
         # Parse JSON
+        content = response.data.content.decode("utf-8")
         data = json.loads(content)
         print(f"Processed JSON file {object_name} → {len(data)} records")
         return data # ---> return {dictionary}
 
     elif object_name.endswith(".csv"):
         # Parse CSV using csv.DictReader (maps header → values)
-        reader = csv.DictReader(io.StringIO(content))
-        rows = [row for row in reader]
-        print(f"Processed CSV file {object_name} → {len(rows)} rows")
-        return rows # ----> returns [List of Dictionaries]
+        content = response.data.content
+        df = pd.read_csv(io.BytesIO(content), low_memory=False)
+        print(f"Processed CSV file {object_name}")
+        return df # ----> returns [Dataframe]
 
     else:
         print(f"Skipping unsupported file type: {object_name}")
@@ -277,31 +280,31 @@ def process_data(combo_id: str, all_files_in_memory: dict) -> pd.DataFrame:
         # ================== ========================================================>
 
         # READ THE CSV FILES ========================================================>
-        game_summary = rdmcsv.game_summary(
+        game_summary = rdmcsv.combine_dfs(
             all_files_in_memory['Home_Team_Summary.csv'],all_files_in_memory['Away_Team_Summary.csv'], 
             match_details["combo_id"], match_details["match_id"]
         )
-        adv_pass_types = rdmcsv.adv_pass_types(
-            all_files_in_memory["Home_Team_Passing.csv"], all_files_in_memory["Away_Team_Passing.csv"],
-            match_details["combo_id"], match_details["match_id"]
-        )
-        advanced_passing = rdmcsv.advanced_passing(
+        adv_pass_types = rdmcsv.combine_dfs(
             all_files_in_memory["Home_Team_Pass_Types.csv"], all_files_in_memory["Away_Team_Pass_Types.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
-        advanced_defending = rdmcsv.advanced_defending(
+        advanced_passing = rdmcsv.combine_dfs(
+            all_files_in_memory["Home_Team_Passing.csv"], all_files_in_memory["Away_Team_Passing.csv"],
+            match_details["combo_id"], match_details["match_id"]
+        )
+        advanced_defending = rdmcsv.combine_dfs(
             all_files_in_memory["Home_Team_Defense.csv"], all_files_in_memory["Away_Team_Defense.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
-        advanced_possession = rdmcsv.advanced_possession(
+        advanced_possession = rdmcsv.combine_dfs(
             all_files_in_memory["Home_Team_Possession.csv"], all_files_in_memory["Away_Team_Possession.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
-        misc_stats = rdmcsv.misc_stats(
+        misc_stats = rdmcsv.combine_dfs(
             all_files_in_memory["Home_Team_Miscellaneous.csv"], all_files_in_memory["Away_Team_Miscellaneous.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
-        gk_stats = rdmcsv.gk_stats(
+        gk_stats = rdmcsv.combine_gk(
             all_files_in_memory["Home_Team_Keeper.csv"], all_files_in_memory["Away_Team_Keeper.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
