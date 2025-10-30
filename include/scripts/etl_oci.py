@@ -16,11 +16,11 @@ TOPIC_ID = 'ocid1.onstopic.oc1.iad.amaaaaaad6m4taqax45toalajzw4abfbzfued6oid23h7
 OBJECT_STORAGE = oci.object_storage.ObjectStorageClient(CONFIG)
 NAMESPACE = OBJECT_STORAGE.get_namespace().data
 BUCKET_NAME = "the_data_xi"
-BASE_PREFIX = 'Done/'
-DEST_PREFIX = 'Processed/'
+# BASE_PREFIX = 'Done/'
+# DEST_PREFIX = 'Processed/'
 
-# BASE_PREFIX = 'Processed/'
-# DEST_PREFIX = 'Done/'
+BASE_PREFIX = 'Processed/'
+DEST_PREFIX = 'Done/'
 
 
 # Convert flat folder structure to nested.
@@ -190,6 +190,8 @@ def ensure_schema_match_raw_table(df, table_name, conn):
                     sql_type = 'BIGINT'
                 elif 'float' in str(dtype):
                     sql_type = 'DECIMAL'
+                elif pd.api.types.is_datetime64_any_dtype(dtype):
+                    sql_type = 'TIMESTAMPTZ'
 
                 # Execute DDL to add the new column
                 print(f"Schema Evolution: Adding column raw.{table_name}.{col_name_lower} as {sql_type}")

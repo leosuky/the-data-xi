@@ -1,11 +1,15 @@
 import pandas as pd
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 def convert_timestamp_to_datetime(timestamp):
-    if timestamp >=0:
+    if timestamp == None:
+        return None
+    elif isinstance(timestamp, str):
+        return pd.to_datetime(timestamp)
+    elif timestamp >=0:
         return datetime.fromtimestamp(timestamp)
     else:
         return datetime(1970, 1, 1) + timedelta(seconds=int(timestamp))
@@ -63,6 +67,8 @@ def players(lineups: dict) -> dict:
         players_list.append(row)
 
     players_df = pd.DataFrame(players_list)
+    time_i = datetime.now(timezone.utc)
+    players_df['ingested_at'] = time_i
 
     data = {
         'players': players_df,
@@ -85,11 +91,15 @@ def tournament_and_season(event: dict) -> dict:
 
     Tournament.append(row)
     Tournament_df = pd.DataFrame(Tournament)
+    time_i = datetime.now(timezone.utc)
+    Tournament_df['ingested_at'] = time_i
 
 
     season = event['event']['season']
     season['tournament_id'] = Tournament[0]["tournament_id"] # Add the Tournament ID
     season_df = pd.DataFrame([season])
+    time_i = datetime.now(timezone.utc)
+    season_df['ingested_at'] = time_i
 
     data = {
         "tournament": Tournament_df,
@@ -138,6 +148,8 @@ def teams_and_referee(event: dict) -> dict:
     teams.append(row2)
 
     Teams_df = pd.DataFrame(teams)
+    time_i = datetime.now(timezone.utc)
+    Teams_df['ingested_at'] = time_i
 
     Referee = []
 
@@ -152,6 +164,8 @@ def teams_and_referee(event: dict) -> dict:
 
     Referee.append(row)
     Referee_df = pd.DataFrame(Referee)
+    time_i = datetime.now(timezone.utc)
+    Referee_df['ingested_at'] = time_i
 
     data = {
         "teams": Teams_df,
@@ -173,6 +187,8 @@ def managers(managers: dict) -> dict:
         managers['homeManager'],
         managers['awayManager']
     ])
+    time_i = datetime.now(timezone.utc)
+    managers_df['ingested_at'] = time_i
 
     data = {
         "managers": managers_df,
@@ -238,6 +254,8 @@ def match_details(
     match_data_df = pd.DataFrame([match_data])
     match_data_df.time_currentPeriodStartTimestamp = pd.to_datetime(match_data_df.time_currentPeriodStartTimestamp, unit='s')
     match_data_df.startTimestamp = pd.to_datetime(match_data_df.startTimestamp, unit='s')
+    time_i = datetime.now(timezone.utc)
+    match_data_df['ingested_at'] = time_i
 
     data = {
         "match": match_data_df,
@@ -270,6 +288,8 @@ def odds_table(odds: dict, combo_id: str) -> pd.DataFrame:
                     odds_dict[f"{period}_{group}_{choice}winning"] = j['name']
 
     odds_df = pd.DataFrame([odds_dict])
+    time_i = datetime.now(timezone.utc)
+    odds_df['ingested_at'] = time_i
 
     return odds_df
 
@@ -293,6 +313,8 @@ def shots_table(shots: dict, match_id: int, combo_id: str) -> pd.DataFrame:
 
     shot_df = pd.DataFrame(shot_data)
     shot_df['row_id'] = shot_df.index
+    time_i = datetime.now(timezone.utc)
+    shot_df['ingested_at'] = time_i
 
     return shot_df
 
@@ -300,8 +322,8 @@ def shots_table(shots: dict, match_id: int, combo_id: str) -> pd.DataFrame:
 def player_stats(lineups: dict, match_id: int, combo_id: str, home_id: int, away_id: int) -> pd.DataFrame:
     # Reads the Lineups from memory
 
-    home_team_players = [player['statistics'] for player in lineups['home']['players'] if player['statistics']]
-    away_team_players = [player['statistics'] for player in lineups['away']['players'] if player['statistics']]
+    # home_team_players = [player['statistics'] for player in lineups['home']['players'] if player['statistics']]
+    # away_team_players = [player['statistics'] for player in lineups['away']['players'] if player['statistics']]
 
     player_stats = []
 
@@ -347,6 +369,8 @@ def player_stats(lineups: dict, match_id: int, combo_id: str, home_id: int, away
 
     player_stats_df = pd.DataFrame(player_stats)
     player_stats_df.fillna(0, inplace=True)
+    time_i = datetime.now(timezone.utc)
+    player_stats_df['ingested_at'] = time_i
 
     return player_stats_df
 
@@ -390,6 +414,8 @@ def lineups_table(lineups: dict, match_id: int, combo_id: str, home_id: int, awa
         lineup_data.append(row)
 
     lineup_dframe = pd.DataFrame(lineup_data)
+    time_i = datetime.now(timezone.utc)
+    lineup_dframe['ingested_at'] = time_i
 
     return lineup_dframe
 
@@ -412,7 +438,9 @@ def missing_players(lineups: dict, match_id: int, combo_id: str, home_id: int, a
             row['reason'] = home['missingPlayers'][i].get('reason', None)
             row['description'] = home['missingPlayers'][i].get('description', None)
             row['external_type'] = home['missingPlayers'][i].get('externalType', None)
-            row['expected_end_date'] = home['missingPlayers'][i].get('expectedEndDate', None)
+            row['expected_end_date'] = convert_timestamp_to_datetime(
+                home['missingPlayers'][i].get('expectedEndDate', None)
+            )
 
             missing_players.append(row)
 
@@ -429,7 +457,9 @@ def missing_players(lineups: dict, match_id: int, combo_id: str, home_id: int, a
             row['reason'] = away['missingPlayers'][i].get('reason', None)
             row['description'] = away['missingPlayers'][i].get('description', None)
             row['external_type'] = away['missingPlayers'][i].get('externalType', None)
-            row['expected_end_date'] = away['missingPlayers'][i].get('expectedEndDate', None)
+            row['expected_end_date'] = convert_timestamp_to_datetime(
+                away['missingPlayers'][i].get('expectedEndDate', None)
+            )
 
             missing_players.append(row)
 
@@ -440,6 +470,9 @@ def missing_players(lineups: dict, match_id: int, combo_id: str, home_id: int, a
             'match_id', 'combo_id', 'team_id', 'is_home_team', 'player_id', 'name',
             'type', 'reason', 'description', 'external_type', 'expected_end_date'
         ])
+
+    time_i = datetime.now(timezone.utc)
+    missing_df['ingested_at'] = time_i
 
     return missing_df
 
@@ -468,6 +501,9 @@ def match_stats(statistics: dict, match_id: int, combo_id: str) -> pd.DataFrame:
         x_game_result.append(row)
 
     match_stats_df = pd.DataFrame(x_game_result)
+    match_stats_df['row_id'] = match_stats_df.index
+    time_i = datetime.now(timezone.utc)
+    match_stats_df['ingested_at'] = time_i
 
     return match_stats_df
 
@@ -487,5 +523,7 @@ def misc_json_data(avg_positions: dict, comments: dict, graph: dict, home_heatma
     }]
 
     data_df = pd.DataFrame(data)
+    time_i = datetime.now(timezone.utc)
+    data_df['ingested_at'] = time_i
 
     return data_df

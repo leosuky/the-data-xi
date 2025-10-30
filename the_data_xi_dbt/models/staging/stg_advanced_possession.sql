@@ -1,7 +1,7 @@
 {{
     config(
-        unique_key='match_id',
-        incremental_strategy='append',
+        unique_key='id',
+        incremental_strategy='merge',
     )
 }}
 
@@ -10,13 +10,23 @@ with source_data as (
     select
         {{ dbt_utils.star(from=source('the_data_xi_raw', 'advanced_possession'), quote_identifiers=True) }}
     from {{ source('the_data_xi_raw', 'advanced_possession') }}
+),
+
+final as (
+    select
+        *,
+        md5(
+            coalesce(match_id::text, '') || '-' ||
+            coalesce(row_id::text)
+        ) as id
+    from source_data
 )
 
 -- 2. Final select ensures schema evolution
 select *
-from source_data
+from final
 
-{% if is_incremental() %}
+{# {% if is_incremental() %}
   -- Only insert matches not already present in target
   where match_id not in (select match_id from {{ this }})
-{% endif %}
+{% endif %} #}

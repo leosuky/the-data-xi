@@ -26,7 +26,7 @@ select
 from deduplicated
 where rn = 1
 
-{% if is_incremental() %}
+{# {% if is_incremental() %}
   -- Only insert matches not already present in target
   and id not in (select id from {{ this }})
-{% endif %}
+{% endif %} #}

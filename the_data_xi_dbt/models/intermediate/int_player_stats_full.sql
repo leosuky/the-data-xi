@@ -106,7 +106,7 @@ select
     coalesce(ap."medium_cmp%", 0) as medium_pass_completion,
     coalesce(ap."long_cmp", 0) as completed_long_passes, -- longer than 30 Yards
     coalesce(ap."long_att", 0) as attempted_long_passes,
-    coalesce(ap."long_cmp%"::numeric, 0) as long_pass_completion,
+    coalesce(ap."long_cmp%", 0) as long_pass_completion,
     coalesce(ap."kp", 0) as key_passes,
     coalesce(ap."xa", 0) as xA, -- Expected Assits
     coalesce(ap."1/3", 0) as final_3rd_passes, -- Passes into Final Third. Completed passes that enter the 1/3 of the pitch closest to the goal.
@@ -188,7 +188,7 @@ select
     coalesce(gk."launched_cmp", 0) as long_passes_completed, --Passes Completed (Launched). Passes longer than 40 yards
     coalesce(gk."launched_att", 0) as long_passes_attempted, -- Passes Attempted (Launched). Passes longer than 40 yards
     coalesce(gk."launched_cmp%", 0) as long_passes_completed_pct, -- Pass Completion Percentage (Launched). Passes longer than 40 yards
-    coalesce(gk."passes_att (gk)", 0) as passes_attempted, -- Passes Attempted (GK). Not including goal kicks
+    coalesce(gk."passes_att (gk)", 0) as gk_passes_attempted, -- Passes Attempted (GK). Not including goal kicks
     coalesce(gk."passes_thr", 0) as throws,
     coalesce(gk."passes_launch%", 0) as long_pass_pct, --Percentage of Passes that were Launched. Not including goal kicks. Passes longer than 40 yards
     coalesce(gk."passes_avglen", 0) as average_pass_length, -- Average Pass Length in yards. Not including goal kicks

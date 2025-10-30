@@ -72,7 +72,7 @@ select
     coalesce(ap."medium_cmp%", 0) as medium_pass_completion,
     coalesce(ap."long_cmp", 0) as completed_long_passes, -- longer than 30 Yards
     coalesce(ap."long_att", 0) as attempted_long_passes,
-    coalesce(ap."long_cmp%"::numeric, 0) as long_pass_completion,
+    coalesce(ap."long_cmp%", 0) as long_pass_completion,
     coalesce(ap."kp", 0) as key_passes,
     coalesce(ap."xa", 0) as xA, -- Expected Assits
     coalesce(ap."1/3", 0) as final_3rd_passes, -- Passes into Final Third. Completed passes that enter the 1/3 of the pitch closest to the goal.

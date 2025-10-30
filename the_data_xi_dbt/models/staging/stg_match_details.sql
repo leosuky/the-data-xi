@@ -1,7 +1,7 @@
 {{
     config(
         unique_key='id',
-        incremental_strategy='append',
+        incremental_strategy='merge',
         partition_by={
             "field": "season_id",
             "data_type": "int"
@@ -21,7 +21,7 @@ with source_data as (
 select *
 from source_data
 
-{% if is_incremental() %}
+{# {% if is_incremental() %}
   -- Only insert matches not already present in target
   where id not in (select id from {{ this }})
-{% endif %}
+{% endif %} #}
