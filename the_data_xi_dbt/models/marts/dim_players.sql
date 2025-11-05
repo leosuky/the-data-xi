@@ -1,11 +1,13 @@
--- This dimension table provides a unique, clean record for every player.
--- It is built from the staging player_data table and deduplicates the data to ensure
--- that each player appears only once, creating a reliable master list of players.
+{{
+    config(
+        materialized='incremental',
+        unique_key='player_id',
+        incremental_strategy='merge'   
+    )
+}}
 
 with source_players as (
-    -- We use a window function to handle potential duplicates in the source data.
-    -- This ensures that if a player's details were ingested multiple times,
-    -- we only select one unique record for our final dimension.
+
     select
         player_id,
         name as player_name,

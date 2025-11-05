@@ -1,39 +1,17 @@
+{{
+    config(
+        unique_key='xx_id',
+        incremental_strategy='merge'   
+    )
+}}
 
-
-with game_summary as (
-    select * from {{ ref('stg_game_summary') }}
-    where "#" IS NULL
-),
-adv_pass_types as (
-    select * from {{ ref('stg_advanced_pass_types') }}
-    where "#" IS NULL
-),
-adv_passing as (
-    select * from {{ ref('stg_advanced_passing') }}
-    where "#" IS NULL
-),
-adv_defending as (
-    select * from {{ ref('stg_advanced_defending') }}
-    where "#" IS NULL
-),
-adv_possession as (
-    select * from {{ ref('stg_advanced_possession') }}
-    where "#" IS NULL
-),
-misc_stats as (
-    select * from {{ ref('stg_misc_stats') }}
-    where "#" IS NULL
-),
-matxh as (
-    select * from {{ ref('stg_match_details') }}
-)
-
--- The main join logic starts here
+with team_stats as 
+(
 select
-    -- Identifiers
-    matxh.*,
-
-
+    g_sum.combo_id as combo_idx,
+    g_sum.match_id as match_idx,
+	g_sum.is_home_team as is_home_team,
+    g_sum.player as team_total,
     -- summary stats (from stg_game_summary)
     coalesce(g_sum."performance_gls", 0) as goals_scored,
     coalesce(g_sum."performance_ast", 0) as assists,
@@ -94,8 +72,7 @@ select
     coalesce(ap_type."outcomes_off", 0) as passes_offside,
     coalesce(ap_type."outcomes_blocks", 0) as passes_blocked, -- Passes Blocked. Blocked by the opponent who was standing in the path.
 
-
-    -- Advanced Possession Stats (from stg_advanced_possession)
+	-- Advanced Possession Stats (from stg_advanced_possession)
     coalesce(aposs."touches_def pen", 0) as defensive_pen_touches,
     coalesce(aposs."touches_def 3rd", 0) as defensive_3rd_touches,
     coalesce(aposs."touches_mid 3rd", 0) as middle_3rd_touches,
@@ -128,7 +105,6 @@ select
     coalesce(adef."clr", 0) as clearances,
     coalesce(adef."err", 0) as errors_to_shot,
 
-
     -- Miscellaneuos Stats (from stg_misc_stats)
     coalesce(misc."performance_2crdy", 0) as second_yellow_cards,
     coalesce(misc."performance_fls", 0) as fouls_comitted,
@@ -142,18 +118,28 @@ select
     coalesce(misc."aerial duels_lost", 0) as aerial_duels_lost,
     coalesce(misc."aerial duels_won%", 0) as aerial_duels_won_pct
 
+from {{ ref('stg_game_summary') }} g_sum
+left join {{ ref('stg_advanced_passing') }} ap          on g_sum.id = ap.id 
+left join {{ ref('stg_advanced_pass_types') }} ap_type  on g_sum.id = ap_type.id
+left join {{ ref('stg_advanced_possession') }} aposs    on g_sum.id = aposs.id
+left join {{ ref('stg_advanced_defending') }} adef      on g_sum.id = adef.id
+left join {{ ref('stg_misc_stats') }} misc              on g_sum.id = misc.id
+where g_sum."#" is null
+),
 
-from matxh
-left join game_summary g_sum
-    on matxh.combo_id = g_sum.combo_id
-left join adv_passing ap
-    on matxh.combo_id = ap.combo_id
-left join adv_pass_types ap_type
-    on matxh.combo_id = ap_type.combo_id
-left join adv_possession aposs
-    on matxh.combo_id = aposs.combo_id
-left join adv_defending adef
-    on matxh.combo_id = adef.combo_id
-left join misc_stats misc
-    on matxh.combo_id = misc.combo_id
+match_details as (
+    select
+        *
+    from {{ ref('stg_match_details') }}
+)
 
+select 
+	ts.*,
+	md5(
+		coalesce(ts.match_idx::integer::text, '') || '-' ||
+		coalesce(ts.is_home_team::text, '')
+	) as xx_id, 
+	md.*
+from match_details md
+left join team_stats ts
+on md.combo_id = ts.combo_idx

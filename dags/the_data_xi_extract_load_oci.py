@@ -9,7 +9,8 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 log = logging.getLogger(__name__)
 
-DBT_COMMAND = "dbt run --select staging --profiles-dir /usr/local/airflow/the_data_xi_dbt"
+DBT_COMPILE = "dbt compile --select staging --profiles-dir /usr/local/airflow/the_data_xi_dbt"
+DBT_RUN = "dbt run --select staging --profiles-dir /usr/local/airflow/the_data_xi_dbt"
 
 @dag(
     description='Dag to extract data from files and load into postgresql',
@@ -106,13 +107,31 @@ def the_data_xi_etl_oci():
         # -------------------------------------------------
         # ELT: Run dbt Staging (Bash via Subprocess)
         log.info("Step 3: Running dbt staging via bash subprocess...")
+
+        # COMPILE 
+
+        try:
+            # Executes the dbt command, capturing output and checking for errors
+            result = subprocess.run(DBT_COMPILE, shell=True, check=True, 
+                                    capture_output=True, text=True, cwd='/usr/local/airflow/the_data_xi_dbt')
+            
+            log.info("Step 3 Complete: DBT STAGING COMPILED SUCCESSFUL.")
+            # Optionally log dbt output for debugging
+            log.info(f"DBT STDOUT: \n{result.stdout}") 
+
+        except subprocess.CalledProcessError as e:
+            log.error(f"DBT run failed for match {combo_id}. Stderr: {e.stderr}")
+            log.error(f"STDOUT:This is the Output\n {e.stdout}")
+            raise Exception(f"Bash Execution Failure (dbt): {e}")
+        
+        # LOAD THE DATA
         
         try:
             # Executes the dbt command, capturing output and checking for errors
-            result = subprocess.run(DBT_COMMAND, shell=True, check=True, 
+            result = subprocess.run(DBT_RUN, shell=True, check=True, 
                                     capture_output=True, text=True, cwd='/usr/local/airflow/the_data_xi_dbt')
             
-            log.info("Step 3 Complete: DBT STAGING RUN SUCCESSFUL.")
+            log.info("Step 4 Complete: DBT STAGING RUN SUCCESSFUL.")
             # Optionally log dbt output for debugging
             log.info(f"DBT STDOUT: \n{result.stdout}") 
 

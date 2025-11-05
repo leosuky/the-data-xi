@@ -1,3 +1,11 @@
+{{
+    config(
+        materialized='incremental',
+        unique_key='id',
+        incremental_strategy='merge'   
+    )
+}}
+
 with shots as (
     select * from {{ ref('stg_shots') }}
 ),
@@ -36,8 +44,10 @@ select
     shots.blockcoordinates as block_coordinates,
     shots.match_id as match_id,
     shots.combo_id as combo_id
+    {# advs.id as dbt_id #}
 
 
 from shots
 left join adv_shots advs
     on shots.combo_id = advs.combo_id and shots.row_id = advs.row_id
+    {# on shots.dbt_id = advs.id #}

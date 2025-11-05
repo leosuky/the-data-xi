@@ -1,5 +1,10 @@
--- This dimension table provides a clean, unique record for every match.
--- It serves as the central source of truth for match-level information.
+{{
+    config(
+        materialized='incremental',
+        unique_key='match_id',
+        incremental_strategy='merge'   
+    )
+}}
 
 with match_details as (
     select

@@ -1,7 +1,9 @@
--- This is the final fact table, the core of our star schema.
--- It contains one row for each player's performance in a single match.
--- The complex joins are handled in the intermediate model, so this model's logic
--- is clean and focused on assembling the final analytical table.
+{{
+    config(
+        unique_key='xx_id',
+        incremental_strategy='merge'   
+    )
+}}
 
 with player_stats as (
     -- We select all the aggregated stats from our intermediate model.
@@ -9,9 +11,23 @@ with player_stats as (
 )
 
 select
-    -- Generating a unique surrogate key for the fact table
-    {{ dbt_utils.generate_surrogate_key(['match_id', 'player_id']) }} as player_performance_id,
-    player_stats.*
+    
+    {{
+        dbt_utils.star(
+            from=ref('int_player_stats_full'), 
+            quote_identifiers=True, 
+            except=[
+                "gk_match_id",
+                "goalkeeper_name",
+                "combo_idx", 
+                "match_idx", 
+                "is_home_teamx", 
+                "player", 
+                "kit_number", 
+                "xx_idx"
+            ]
+        )
+    }}
 
 from player_stats
 

@@ -40,6 +40,7 @@ def shot_data(path: pd.DataFrame, combo_id: str, match_id: int) -> pd.DataFrame:
     full = path
     
     full = full.dropna(subset=["Minute"])
+    full.reset_index(drop=True, inplace=True)
 
     full['combo_id'] = combo_id
     full['match_id'] = match_id
