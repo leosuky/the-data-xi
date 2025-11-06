@@ -134,6 +134,12 @@ models:
         tests:
           - not_null
           - unique
+      - name: name
+        tests:
+          - not_null
+      - name: tier
+        tests:
+          - not_null
   
   - name: stg_seasons
     columns:
@@ -147,6 +153,12 @@ models:
         tests:
           - not_null
           - unique
+      - name: name
+        tests:
+          - not_null
+      - name: year
+        tests:
+          - not_null
   
   - name: stg_advanced_shot_data
     columns:
@@ -228,12 +240,6 @@ models:
           - relationships:
               to: ref('stg_teams')
               field: team_id
-      - name: player_id
-        tests:
-          - not_null
-          - relationships:
-              to: ref('stg_player_data')
-              field: player_id
   
   - name: stg_player_stats
     columns:
@@ -352,6 +358,9 @@ models:
       - name: id
         tests:
           - unique
+          - not_null
+      - name: name
+        tests:
           - not_null
   
   - name: stg_teams

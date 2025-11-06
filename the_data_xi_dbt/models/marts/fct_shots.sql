@@ -1,5 +1,6 @@
 {{
     config(
+        description="Event-level shot data. One row per shot per match."
         materialized='incremental',
         unique_key='id',
         incremental_strategy='merge'   

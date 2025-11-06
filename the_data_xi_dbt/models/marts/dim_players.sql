@@ -1,5 +1,6 @@
 {{
     config(
+        description='Core dimension table for players. One row per player.'
         materialized='incremental',
         unique_key='player_id',
         incremental_strategy='merge'   

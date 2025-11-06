@@ -1,5 +1,6 @@
 {{
     config(
+        description='Core dimension table for matches. One row per match.'
         materialized='incremental',
         unique_key='match_id',
         incremental_strategy='merge'   
