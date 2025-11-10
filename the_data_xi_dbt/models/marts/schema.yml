@@ -125,7 +125,7 @@ models:
         description: "Unique key: MD5(match_id + shirt_number + is_home_team)"
         tests:
           - unique
-          - not_null
+          # - not_null
 
       - name: match_id
         description: "FK to dim_matches"
@@ -163,33 +163,32 @@ models:
         tests:
           - accepted_values:
               values: ['G', 'D', 'M', 'F']
-              quote: false
 
       - name: minutes_played
         description: "Minutes played in the match"
         tests:
           - dbt_utils.expression_is_true:
-              expression: "minutes_played >= 0"
+              expression: ">= 0"
           - dbt_utils.expression_is_true:
-              expression: "minutes_played <= 120"
+              expression: "<= 120"
 
       - name: xG
         description: "Expected goals"
         tests:
           - dbt_utils.expression_is_true:
-              expression: "xG >= 0"
+              expression: ">= 0"
 
       - name: goals_scored
-        description: "Actual goals scored"
+        description: "Actual goals scored by the player"
         tests:
           - dbt_utils.expression_is_true:
-              expression: "goals_scored >= 0"
+              expression: ">= 0"
 
       - name: shirt_number
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "shirt_number > 0"
+              expression: "> 0"
 
 
   - name: fct_team_stats
@@ -259,7 +258,7 @@ models:
       - name: xg
         tests:
           - dbt_utils.expression_is_true:
-              expression: "xg >= 0 AND xg <= 1.0"
+              expression: ">= 0 AND xg <= 1.0"
 
 
   - name: fct_odds

@@ -1,6 +1,6 @@
 {{
     config(
-        description='Wide team performance table. One row per team per match.'
+        description='Wide team performance table. One row per team per match.',
         materialized='incremental',
         unique_key='xx_id',
         incremental_strategy='merge'   

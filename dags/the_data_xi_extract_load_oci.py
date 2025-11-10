@@ -1,3 +1,4 @@
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.decorators import dag, task
 from datetime import datetime
 import logging
@@ -171,8 +172,18 @@ def the_data_xi_etl_oci():
 
     #         log.info(f'Successfully moved all files for {combo_id}')
 
+     # NEW: Trigger the marts DAG after all matches are processed
+    trigger_marts_dag = TriggerDagRunOperator(
+        task_id="trigger_marts_dag",
+        trigger_dag_id="dbt_marts_dag",
+        wait_for_completion=False,
+        reset_dag_run=True,
+        trigger_rule="all_success"
+    )
+
 
     # After all files are processed, move them.
-    final_mapped_task #>> move_data_to_processed_bucket(match_list)
+    # final_mapped_task >> move_data_to_processed_bucket(match_list) >> trigger_marts_dag
+    final_mapped_task >> trigger_marts_dag
 
 the_data_xi_etl_oci()

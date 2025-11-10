@@ -1,6 +1,6 @@
 {{
     config(
-        description='Core dimension table for teams. One row per team.'
+        description='Core dimension table for teams. One row per team.',
         materialized='incremental',
         unique_key='team_id',
         incremental_strategy='merge'   

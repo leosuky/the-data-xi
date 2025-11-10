@@ -1,6 +1,6 @@
 {{
     config(
-        description='Wide player performance table. One row per player per match.'
+        description='Wide player performance table. One row per player per match.',
         unique_key='xx_id',
         incremental_strategy='merge'   
     )
