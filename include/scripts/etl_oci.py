@@ -349,29 +349,53 @@ def process_data(combo_id: str, all_files_in_memory: dict) -> pd.DataFrame:
 
     return all_data
 
-def notify_oci(context):
-    
-    dag_run = context.get("dag_run")
-    task_instance = context.get("task_instance")
-    
-    dag_id = dag_run.dag_id
-    task_id = task_instance.task_id
-    state = task_instance.state
-    
-    body = (
-        # Use the string variable task_id directly (not task_id.task_id)
-        f"Task {task_id} failed in DAG {dag_id}.\n" 
-        # Access execution_date from the dag_run object
-        # f"Execution Time: {dag_run.execution_date}\n" 
-        # Access log_url from the task_instance object
-        # f"Log URL: {task_instance.log_url}\n" 
+def notify_on_success(context):
+    """Send a success notification to OCI when the DAG or task succeeds."""
+    dag_id = context["dag"].dag_id
+    execution_date = context["logical_date"]
+    task_id = context.get("task_instance").task_id if "task_instance" in context else "N/A"
+
+    message_body = (
+        f"✅ **SUCCESS**: DAG `{dag_id}` completed successfully.\n"
+        f"- Task: `{task_id}`\n"
+        f"- Execution Date: `{execution_date}`\n"
+        f"- Run ID: `{context.get('run_id', 'N/A')}`"
     )
-    
-    NOTIFICATION.publish_message(
-        TOPIC_ID,
-        oci.ons.models.MessageDetails(
-            title=f"Airflow Alert: {state.upper()}",
-            body=body
+
+    try:
+        NOTIFICATION.publish_message(
+            topic_id=TOPIC_ID,
+            message_details=oci.ons.models.MessageDetails(
+                title="The Data XI – Pipeline Success",
+                body=message_body
+            )
         )
+    except Exception as e:
+        # Log but don't fail the DAG
+        print(f"⚠️ Failed to send success notification: {e}")
+
+def notify_on_failure(context):
+    """Send a failure notification to OCI when the DAG or task fails."""
+    dag_id = context["dag"].dag_id
+    execution_date = context["logical_date"]
+    task_id = context.get("task_instance").task_id if "task_instance" in context else "N/A"
+    exception = context.get("exception", "Unknown error")
+
+    message_body = (
+        f"❌ **FAILURE**: DAG `{dag_id}` failed.\n"
+        f"- Task: `{task_id}`\n"
+        f"- Execution Date: `{execution_date}`\n"
+        f"- Error: `{str(exception)[:500]}`"  # Truncate long errors
     )
+
+    try:
+        NOTIFICATION.publish_message(
+            topic_id=TOPIC_ID,
+            message_details=oci.ons.models.MessageDetails(
+                title="The Data XI – Pipeline Failure",
+                body=message_body
+            )
+        )
+    except Exception as e:
+        print(f"⚠️ Failed to send failure notification: {e}")
 

@@ -21,8 +21,8 @@ DBT_RUN = "dbt run --select staging --profiles-dir /usr/local/airflow/the_data_x
     tags=['etl', 'the_data_xi', 'football', 'Oracle Cloud', 'OCI'],
     default_args={
         'postgres_conn_id': 'the_data_xi_postgres',
-        # 'on_failure_callback': etl_oci.notify_oci,
-        # 'on_success_callback': etl_oci.notify_oci
+        'on_failure_callback': etl_oci.notify_on_failure,
+        'on_success_callback': etl_oci.notify_on_success
     }
 )
 def the_data_xi_etl_oci():
@@ -158,19 +158,19 @@ def the_data_xi_etl_oci():
     # Map the unified task over the list of matches
     final_mapped_task = process_load_and_dbt_single_task.expand(match_info=match_list)
 
-    # @task
-    # def move_data_to_processed_bucket(match_info: list):
+    @task
+    def move_data_to_processed_bucket(match_info: list):
         
-    #     for game in match_info:
-    #         combo_id = game["combo_id"]
-    #         prefix = game["prefix"]
-    #         files = game["files"]
+        for game in match_info:
+            combo_id = game["combo_id"]
+            prefix = game["prefix"]
+            files = game["files"]
 
-    #         for file in files:
-    #             object_name = f'{prefix}/{file}'
-    #             etl_oci.move_file_between_folders(object_name)
+            for file in files:
+                object_name = f'{prefix}/{file}'
+                etl_oci.move_file_between_folders(object_name)
 
-    #         log.info(f'Successfully moved all files for {combo_id}')
+            log.info(f'Successfully moved all files for {combo_id}')
 
      # NEW: Trigger the marts DAG after all matches are processed
     trigger_marts_dag = TriggerDagRunOperator(
@@ -183,7 +183,7 @@ def the_data_xi_etl_oci():
 
 
     # After all files are processed, move them.
-    # final_mapped_task >> move_data_to_processed_bucket(match_list) >> trigger_marts_dag
-    final_mapped_task >> trigger_marts_dag
+    final_mapped_task >> move_data_to_processed_bucket(match_list) >> trigger_marts_dag
+    # final_mapped_task >> trigger_marts_dag
 
 the_data_xi_etl_oci()

@@ -1,6 +1,7 @@
 from airflow.decorators import dag, task
 from datetime import datetime
 import subprocess
+import include.scripts.etl_oci as etl_oci
 
 # Define the dbt command to run the marts models
 DBT_RUN_INTER = "dbt run --select intermediate"
@@ -18,7 +19,9 @@ DBT_PROJECT_DIR = "/usr/local/airflow/the_data_xi_dbt" # Path to your dbt projec
     default_args={
         'owner': 'airflow',
         # Best practice: point dbt profiles dir to a path inside the project
-        'env': {'DBT_PROFILES_DIR': '.'}
+        'env': {'DBT_PROFILES_DIR': '.'},
+        'on_failure_callback': etl_oci.notify_on_failure,
+        'on_success_callback': etl_oci.notify_on_success
     }
 )
 def dbt_marts_dag():

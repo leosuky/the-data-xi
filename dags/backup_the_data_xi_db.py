@@ -3,7 +3,7 @@ from airflow import DAG
 from airflow.decorators import dag, task
 import logging, os
 import subprocess
-from airflow.providers.standard.operators.bash import BashOperator
+import include.scripts.etl_oci as etl_oci
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 import oci
 
@@ -13,12 +13,6 @@ TOPIC_ID = 'ocid1.onstopic.oc1.iad.amaaaaaad6m4taqax45toalajzw4abfbzfued6oid23h7
 OBJECT_STORAGE = oci.object_storage.ObjectStorageClient(CONFIG)
 NAMESPACE = OBJECT_STORAGE.get_namespace().data
 BUCKET_NAME = "the_data_xi_data_dump"
-
-# def move_dump_to_oci(object_name):
-
-#     OBJECT_STORAGE.put_object(NAMESPACE, BUCKET_NAME, dest_object, response.data.content)
-
-#     print(f"Moved {src_object} -> {dest_object}")
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +24,10 @@ log = logging.getLogger(__name__)
     catchup=False,
     # default_args=default_args,
     tags=["backup", "the_data_xi", "postgres"],
+    default_args={
+        'on_failure_callback': etl_oci.notify_on_failure,
+        'on_success_callback': etl_oci.notify_on_success
+    }
 )
 def backup_the_data_xi_db():
 
@@ -118,5 +116,5 @@ def backup_the_data_xi_db():
         
 
     pg_dump_backup()
-    
+
 backup_the_data_xi_db()

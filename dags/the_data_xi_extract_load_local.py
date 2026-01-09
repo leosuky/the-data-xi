@@ -4,6 +4,7 @@ from datetime import datetime
 import logging
 import subprocess
 import include.scripts.etl_local as etl_local
+import include.scripts.etl_oci as etl_oci
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 
@@ -21,8 +22,8 @@ BASE_DIR = '/usr/local/airflow/data'
     tags=['etl', 'the_data_xi', 'football', 'local storage'],
     default_args={
         'postgres_conn_id': 'the_data_xi_postgres',
-        # 'on_failure_callback': etl_oci.notify_oci,
-        # 'on_success_callback': etl_oci.notify_oci
+        'on_failure_callback': etl_oci.notify_on_failure,
+        'on_success_callback': etl_oci.notify_on_success
     }
 )
 def the_data_xi_extract_load_local():
