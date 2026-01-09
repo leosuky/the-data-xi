@@ -1,11 +1,15 @@
 import pandas as pd
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 def convert_timestamp_to_datetime(timestamp):
-    if timestamp >=0:
+    if timestamp == None:
+        return None
+    elif isinstance(timestamp, str):
+        return pd.to_datetime(timestamp)
+    elif timestamp >=0:
         return datetime.fromtimestamp(timestamp)
     else:
         return datetime(1970, 1, 1) + timedelta(seconds=int(timestamp))
@@ -65,6 +69,8 @@ def players(filepath: str) -> dict:
         players_list.append(row)
 
     players_df = pd.DataFrame(players_list)
+    time_i = datetime.now(timezone.utc)
+    players_df['ingested_at'] = time_i
 
     data = {
         'players': players_df,
@@ -90,11 +96,15 @@ def tournament_and_season(filepath: str) -> dict:
 
     Tournament.append(row)
     Tournament_df = pd.DataFrame(Tournament)
+    time_i = datetime.now(timezone.utc)
+    Tournament_df['ingested_at'] = time_i
 
 
     season = event['event']['season']
     season['tournament_id'] = Tournament[0]["tournament_id"] # Add the Tournament ID
     season_df = pd.DataFrame([season])
+    time_i = datetime.now(timezone.utc)
+    season_df['ingested_at'] = time_i
 
     data = {
         "tournament": Tournament_df,
@@ -145,6 +155,8 @@ def teams_and_referee(filepath: str) -> dict:
     teams.append(row2)
 
     Teams_df = pd.DataFrame(teams)
+    time_i = datetime.now(timezone.utc)
+    Teams_df['ingested_at'] = time_i
 
     Referee = []
 
@@ -159,6 +171,8 @@ def teams_and_referee(filepath: str) -> dict:
 
     Referee.append(row)
     Referee_df = pd.DataFrame(Referee)
+    time_i = datetime.now(timezone.utc)
+    Referee_df['ingested_at'] = time_i
 
     data = {
         "teams": Teams_df,
@@ -182,6 +196,8 @@ def managers(filepath: str) -> dict:
         managers['homeManager'],
         managers['awayManager']
     ])
+    time_i = datetime.now(timezone.utc)
+    managers_df['ingested_at'] = time_i
 
     data = {
         "managers": managers_df,
@@ -250,6 +266,8 @@ def match_details(
     match_data_df = pd.DataFrame([match_data])
     match_data_df.time_currentPeriodStartTimestamp = pd.to_datetime(match_data_df.time_currentPeriodStartTimestamp, unit='s')
     match_data_df.startTimestamp = pd.to_datetime(match_data_df.startTimestamp, unit='s')
+    time_i = datetime.now(timezone.utc)
+    match_data_df['ingested_at'] = time_i
 
     data = {
         "match": match_data_df,
@@ -284,6 +302,8 @@ def odds_table(filepath: str, combo_id: str) -> pd.DataFrame:
                     odds_dict[f"{period}_{group}_{choice}winning"] = j['name']
 
     odds_df = pd.DataFrame([odds_dict])
+    time_i = datetime.now(timezone.utc)
+    odds_df['ingested_at'] = time_i
 
     return odds_df
 
@@ -308,6 +328,9 @@ def shots_table(filepath: str, match_id: int, combo_id: str) -> pd.DataFrame:
         shot_data.append(row)
 
     shot_df = pd.DataFrame(shot_data)
+    shot_df['row_id'] = shot_df.index
+    time_i = datetime.now(timezone.utc)
+    shot_df['ingested_at'] = time_i
 
     return shot_df
 
@@ -317,8 +340,8 @@ def player_stats(filepath: str, match_id: int, combo_id: str, home_id: int, away
     with open(filepath, 'r', encoding='utf-8') as file:
         lineups = json.load(file)
 
-    home_team_players = [player['statistics'] for player in lineups['home']['players'] if player['statistics']]
-    away_team_players = [player['statistics'] for player in lineups['away']['players'] if player['statistics']]
+    # home_team_players = [player['statistics'] for player in lineups['home']['players'] if player['statistics']]
+    # away_team_players = [player['statistics'] for player in lineups['away']['players'] if player['statistics']]
 
     player_stats = []
 
@@ -332,7 +355,13 @@ def player_stats(filepath: str, match_id: int, combo_id: str, home_id: int, away
             row['player_id'] = player['player']['id']
             row['position'] = player['position']
             rating = 'ratingVersions' in player['statistics']
-            row['match_rating'] = player['statistics']['ratingVersions']['original'] if rating else 0
+            if rating:
+                row['match_rating'] = player['statistics']['ratingVersions']['original']
+            elif 'rating' in player['statistics']:
+                row['match_rating'] = player['statistics']['rating']
+            else:
+                row['match_rating'] = 0
+            player['statistics'].pop('ratingVersions', None)
             row.update(player['statistics'])
             player_stats.append(row)
 
@@ -346,12 +375,20 @@ def player_stats(filepath: str, match_id: int, combo_id: str, home_id: int, away
             row['player_id'] = player['player']['id']
             row['position'] = player['position']
             rating = 'ratingVersions' in player['statistics']
-            row['match_rating'] = player['statistics']['ratingVersions']['original'] if rating else 0
+            if rating:
+                row['match_rating'] = player['statistics']['ratingVersions']['original']
+            elif 'rating' in player['statistics']:
+                row['match_rating'] = player['statistics']['rating']
+            else:
+                row['match_rating'] = 0
+            player['statistics'].pop('ratingVersions', None)
             row.update(player['statistics'])
             player_stats.append(row)
 
     player_stats_df = pd.DataFrame(player_stats)
     player_stats_df.fillna(0, inplace=True)
+    time_i = datetime.now(timezone.utc)
+    player_stats_df['ingested_at'] = time_i
 
     return player_stats_df
 
@@ -397,9 +434,69 @@ def lineups_table(filepath: str, match_id: int, combo_id: str, home_id: int, awa
         lineup_data.append(row)
 
     lineup_dframe = pd.DataFrame(lineup_data)
+    time_i = datetime.now(timezone.utc)
+    lineup_dframe['ingested_at'] = time_i
 
     return lineup_dframe
 
+def missing_players(filepath: str, match_id: int, combo_id: str, home_id: int, away_id: int) -> pd.DataFrame:
+    with open(filepath, 'r', encoding='utf-8') as file:
+        lineups = json.load(file)
+
+    home = lineups['home']
+    away = lineups['away']
+
+    missing_players = []
+    if 'missingPlayers' in home.keys():
+        for i in range(len(home['missingPlayers'])):
+            row = {}
+            row['match_id'] = match_id
+            row['combo_id'] = combo_id
+            row['team_id'] = home_id
+            row['is_home_team'] = True
+            row['player_id'] = home['missingPlayers'][i]['player']['id']
+            row['name'] = home['missingPlayers'][i]['player']['name']
+            row['type'] = home['missingPlayers'][i].get('type', None)
+            row['reason'] = home['missingPlayers'][i].get('reason', None)
+            row['description'] = home['missingPlayers'][i].get('description', None)
+            row['external_type'] = home['missingPlayers'][i].get('externalType', None)
+            row['expected_end_date'] = convert_timestamp_to_datetime(
+                home['missingPlayers'][i].get('expectedEndDate', None)
+            )
+
+            missing_players.append(row)
+
+    if 'missingPlayers' in away.keys():
+        for i in range(len(away['missingPlayers'])):
+            row = {}
+            row['match_id'] = match_id
+            row['combo_id'] = combo_id
+            row['team_id'] = away_id
+            row['is_home_team'] = False
+            row['player_id'] = away['missingPlayers'][i]['player']['id']
+            row['name'] = away['missingPlayers'][i]['player']['name']
+            row['type'] = away['missingPlayers'][i].get('type', None)
+            row['reason'] = away['missingPlayers'][i].get('reason', None)
+            row['description'] = away['missingPlayers'][i].get('description', None)
+            row['external_type'] = away['missingPlayers'][i].get('externalType', None)
+            row['expected_end_date'] = convert_timestamp_to_datetime(
+                away['missingPlayers'][i].get('expectedEndDate', None)
+            )
+
+            missing_players.append(row)
+
+    if missing_players:
+        missing_df = pd.DataFrame(missing_players)
+    else:
+        missing_df = pd.DataFrame(columns=[
+            'match_id', 'combo_id', 'team_id', 'is_home_team', 'player_id', 'name',
+            'type', 'reason', 'description', 'external_type', 'expected_end_date'
+        ])
+
+    time_i = datetime.now(timezone.utc)
+    missing_df['ingested_at'] = time_i
+
+    return missing_df
 
 def match_stats(filepath: str, match_id: int, combo_id: str) -> pd.DataFrame:
     with open(filepath, 'r', encoding='utf-8') as file:
@@ -427,10 +524,16 @@ def match_stats(filepath: str, match_id: int, combo_id: str) -> pd.DataFrame:
         x_game_result.append(row)
 
     match_stats_df = pd.DataFrame(x_game_result)
+    match_stats_df['row_id'] = match_stats_df.index
+    time_i = datetime.now(timezone.utc)
+    match_stats_df['ingested_at'] = time_i
 
     return match_stats_df
 
-def misc_json_data(avg_positions: str, comments: str, graph: str, home_heatmap: str, away_heatmap: str, match_id: int, combo_id: str) -> pd.DataFrame:
+
+def misc_json_data(avg_positions: str, comments: str, graph: str, home_heatmap: str, 
+        away_heatmap: str, match_id: int, combo_id: str, full_heatmaps: str) -> pd.DataFrame:
+    
     with open(avg_positions, 'r', encoding='utf-8') as file:
         avg_positions = json.load(file)
     with open(comments, 'r', encoding='utf-8') as file:
@@ -441,6 +544,9 @@ def misc_json_data(avg_positions: str, comments: str, graph: str, home_heatmap: 
         home_heatmap = json.load(file)
     with open(away_heatmap, 'r', encoding='utf-8') as file:
         away_heatmap = json.load(file)
+    if isinstance(full_heatmaps, str):
+        with open(full_heatmaps, 'r', encoding='utf-8') as file:
+            full_heatmaps = json.load(file)
 
     data = [{
         "match_id": match_id,
@@ -449,9 +555,12 @@ def misc_json_data(avg_positions: str, comments: str, graph: str, home_heatmap: 
         "commentary": comments,
         "match_momentum_graph": graph,
         "home_heatmap": home_heatmap,
-        "away_heatmap": away_heatmap
+        "away_heatmap": away_heatmap,
+        "full_player_heatmaps": full_heatmaps
     }]
 
     data_df = pd.DataFrame(data)
+    time_i = datetime.now(timezone.utc)
+    data_df['ingested_at'] = time_i
 
     return data_df

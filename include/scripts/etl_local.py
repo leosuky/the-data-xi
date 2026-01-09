@@ -1,82 +1,15 @@
-import io, json, oci
+import os, io, json, csv
+import numpy as np
 import pandas as pd
 import pathlib, collections
 from sqlalchemy import create_engine, text
 from sqlalchemy.dialects.postgresql import JSONB
-from include.helpers import read_csv_in_memory as rdmcsv
-from include.helpers import read_json_in_memory as rdmjson
+from include.helpers import read_csv_data as rd_csv, read_json_data as rd_json
 from airflow.sdk import Connection
-from airflow.providers.standard.operators.bash import BashOperator
+import logging
 
-
-
-CONFIG = oci.config.from_file(file_location="/usr/local/airflow/.oci/config")
-NOTIFICATION = oci.ons.NotificationDataPlaneClient(CONFIG)
-TOPIC_ID = 'ocid1.onstopic.oc1.iad.amaaaaaad6m4taqax45toalajzw4abfbzfued6oid23h7rdjws53bbie7m5a'
-OBJECT_STORAGE = oci.object_storage.ObjectStorageClient(CONFIG)
-NAMESPACE = OBJECT_STORAGE.get_namespace().data
-BUCKET_NAME = "the_data_xi"
-BASE_PREFIX = 'Done/'
-DEST_PREFIX = 'Processed/'
-
-# BASE_PREFIX = 'Processed/'
-# DEST_PREFIX = 'Done/'
-
-
-# Convert flat folder structure to nested.
-def build_tree(object_list, base_prefix=BASE_PREFIX):
-    tree = collections.defaultdict(list)
-    for obj in object_list:
-        # Remove base prefix
-        if "." in obj.name:
-            relative_path = obj.name[len(base_prefix):]
-            parts = relative_path.split("/")
-            if len(parts) > 1:
-                tree["/".join(parts[:-1])].append(parts[-1])
-    return tree
-
-def get_file_names_from_bucket():
-    # List everything under Done/
-    objects = OBJECT_STORAGE.list_objects(
-        namespace_name=NAMESPACE,
-        bucket_name=BUCKET_NAME,
-        prefix=BASE_PREFIX
-    )
-
-    # Build a pseudo-folder structure
-    tree = build_tree(objects.data.objects, base_prefix=BASE_PREFIX)
-    # A dict where k = path/combo_id, v = [filenames]
-
-    return tree
-
-
-def process_object_in_memory(bucket_name: str, object_name: str) -> dict | list:
-    """
-    Download an object from OCI Object Storage and process it
-    depending on its extension (.json or .csv).
-    """
-
-    # Fetch object
-    response = OBJECT_STORAGE.get_object(NAMESPACE, bucket_name, object_name)
-
-    if object_name.endswith(".json"):
-        # Parse JSON
-        content = response.data.content.decode("utf-8")
-        data = json.loads(content)
-        print(f"Processed JSON file {object_name} → {len(data)} records")
-        return data # ---> return {dictionary}
-
-    elif object_name.endswith(".csv"):
-        # Parse CSV using csv.DictReader (maps header → values)
-        content = response.data.content
-        df = pd.read_csv(io.BytesIO(content), low_memory=False)
-        print(f"Processed CSV file {object_name}")
-        return df # ----> returns [Dataframe]
-
-    else:
-        print(f"Skipping unsupported file type: {object_name}")
-        return None
-    
+# LOGGER
+log = logging.getLogger(__name__)
 
 def parse_file_name(str_path: str) -> str:
     
@@ -91,37 +24,43 @@ def parse_file_name(str_path: str) -> str:
     else:
         return str_path
 
-def move_file_between_folders(object_name):
+# Get all filenames from directory.
+def get_file_names_from_local_dir(base_dir: str) -> list[dict]:
+    """
+    Scans a local directory (e.g., '/usr/local/airflow/data') for match data
+    and returns a list of items for the Airflow DAG to map over.
+    
+    Assumes a structure like: <base_dir>/<League>/<Season>/<GW>/<combo_id>/[files]
+    """
+    log.info(f"Scanning for match folders in local directory: {base_dir}")
+    tree = collections.defaultdict(list)
+    
+    for root, dirs, files in os.walk(base_dir):
+        if not dirs: # This means we are in a leaf directory (e.g., a combo_id folder)
+            # We want the 'prefix' to be the path to the combo_id folder
+            # and the 'combo_id' to be the folder name itself.
+            path = root
+            combo_id = os.path.basename(root)
+            
+            if len(files) < 28:
+                log.warning(f"Skipping path {path}: Found {len(files)} files, expected 28.")
+                continue
+                
+            # Store the file list for this path
+            tree[path] = files
 
-    # Source and destination object names
-    src_object = f"{BASE_PREFIX}{object_name}"
-    dest_object = f"{DEST_PREFIX}{object_name}"
+    # Prepare the map_list for Airflow, same as the OCI version
+    map_list = []
+    for path, files in tree.items():
+        combo_id = os.path.basename(path)
+        map_list.append({"combo_id": combo_id, "path": path, "files": files})
 
-    # 1. Get object from source
-    response = OBJECT_STORAGE.get_object(NAMESPACE, BUCKET_NAME, src_object)
+    if not map_list:
+        log.warning("No valid match folders found in local directory.")
+        
+    log.info(f"Found {len(map_list)} valid match folders to process.")
+    return map_list
 
-    # 2. Upload object to destination
-    OBJECT_STORAGE.put_object(NAMESPACE, BUCKET_NAME, dest_object, response.data.content)
-
-    # 3. Delete original
-    OBJECT_STORAGE.delete_object(NAMESPACE, BUCKET_NAME, src_object)
-
-    print(f"Moved {src_object} -> {dest_object}")
-
-def download_objects_to_memory(prefix: str, files: list):
-
-    all_files_in_memory = {}
-
-    for file in files:
-        object_name = f"{BASE_PREFIX}{prefix}/{file}"
-        object_file = process_object_in_memory(BUCKET_NAME, object_name)
-
-        # Save file in dictionary
-        data_name = parse_file_name(file)
-
-        all_files_in_memory[data_name] = object_file
-
-    return all_files_in_memory
 
 def connect_to_postgres():
     conn = Connection.get("the_data_xi_postgres")
@@ -138,7 +77,7 @@ def connect_to_postgres():
         return conn
     except Exception as e:
         raise(e)
-
+    
 def ensure_schema_match_raw_table(df, table_name, conn):
     """
     Checks the database schema against the DataFrame schema and adds missing columns (DDL).
@@ -209,6 +148,9 @@ def store_dataframe_to_postgres(df, table_name, conn):
     # 1. Create a dictionary to hold the custom column types
     dtype_dict = {}
 
+    # Turn any empty strings to null
+    df = df.replace(r'^\s*$', np.nan, regex=True)
+
     # Make column names lower case
     df.columns = df.columns.str.lower()
 
@@ -234,84 +176,97 @@ def store_dataframe_to_postgres(df, table_name, conn):
     )
     print(f"DataFrame successfully stored in table '{table_name}'.")
 
-def process_data(combo_id: str, all_files_in_memory: dict) -> pd.DataFrame:
+# Process All Data for a single Game.
+def process_data(match: dict) -> dict[pd.DataFrame]:
 
+    combo_id = match['combo_id']
+    path_to_files = match['path']
+    files = match['files']
+
+    files_dict = {}
+    for file in files:
+        parsed_name = parse_file_name(file)
+        file_path = os.path.join(path_to_files, file)
+        files_dict[parsed_name] = file_path
+
+    # PROCESS FILES
+    log.info(f"Now Processing files for Match: {combo_id}")
     try:
         print("Parsing json and csv files...")
         # READ THE JSON FILES ========================================================>
-        player_data = rdmjson.players(all_files_in_memory["lineups"]) # players, home_formation, away_formation
+        player_data = rd_json.players(files_dict["lineups"]) # players, home_formation, away_formation
 
-        tournament_data = rdmjson.tournament_and_season(all_files_in_memory["main_event_data"]) # tournament, season, season_id, tournament_id
+        tournament_data = rd_json.tournament_and_season(files_dict["main_event_data"]) # tournament, season, season_id, tournament_id
 
-        teams_and_ref = rdmjson.teams_and_referee(all_files_in_memory["main_event_data"]) # teams, referee, home_team_id, away_team_id, referee_id
+        teams_and_ref = rd_json.teams_and_referee(files_dict["main_event_data"]) # teams, referee, home_team_id, away_team_id, referee_id
 
-        managers = rdmjson.managers(all_files_in_memory["managers"]) # managers, home_manager_id, away_manager_id
+        managers = rd_json.managers(files_dict["managers"]) # managers, home_manager_id, away_manager_id
 
-        match_details = rdmjson.match_details(
-            all_files_in_memory["main_event_data"], all_files_in_memory["best_players_summary"], managers["home_manager_id"], managers["away_manager_id"],
+        match_details = rd_json.match_details(
+            files_dict["main_event_data"], files_dict["best_players_summary"], managers["home_manager_id"], managers["away_manager_id"],
             tournament_data["tournament_id"], tournament_data["season_id"], combo_id, 
             player_data["home_formation"], player_data["away_formation"]
         ) # match, match_id, combo_id
 
-        odds_data = rdmjson.odds_table(all_files_in_memory["odds_all"], match_details["combo_id"])
+        odds_data = rd_json.odds_table(files_dict["odds_all"], match_details["combo_id"])
 
-        shots = rdmjson.shots_table(all_files_in_memory["shotmap"], match_details["match_id"], match_details["combo_id"])
+        shots = rd_json.shots_table(files_dict["shotmap"], match_details["match_id"], match_details["combo_id"])
 
-        player_stats = rdmjson.player_stats(
-            all_files_in_memory["lineups"], match_details["match_id"], match_details["combo_id"],
+        player_stats = rd_json.player_stats(
+            files_dict["lineups"], match_details["match_id"], match_details["combo_id"],
             teams_and_ref["home_team_id"], teams_and_ref["away_team_id"]
         )
 
-        lineup = rdmjson.lineups_table(
-            all_files_in_memory["lineups"], match_details["match_id"], match_details["combo_id"], 
+        lineup = rd_json.lineups_table(
+            files_dict["lineups"], match_details["match_id"], match_details["combo_id"], 
             teams_and_ref["home_team_id"], teams_and_ref["away_team_id"]
         )
 
-        missing_players = rdmjson.missing_players(
-            all_files_in_memory["lineups"], match_details["match_id"], match_details["combo_id"], 
+        missing_players = rd_json.missing_players(
+            files_dict["lineups"], match_details["match_id"], match_details["combo_id"], 
             teams_and_ref["home_team_id"], teams_and_ref["away_team_id"]
         )
 
-        match_stats = rdmjson.match_stats(all_files_in_memory["statistics"], match_details["match_id"], match_details["combo_id"])
+        match_stats = rd_json.match_stats(files_dict["statistics"], match_details["match_id"], match_details["combo_id"])
 
-        miscellaneous_data = rdmjson.misc_json_data(
-            all_files_in_memory["average_positions"], all_files_in_memory["comments"], all_files_in_memory["graph"],
-            all_files_in_memory["heatmap_home_team"], all_files_in_memory["heatmap_away_team"], match_details["match_id"],
-            match_details["combo_id"], full_heatmaps=all_files_in_memory.get('heatmaps', {'None': None})
+        miscellaneous_data = rd_json.misc_json_data(
+            files_dict["average_positions"], files_dict["comments"], files_dict["graph"],
+            files_dict["heatmap_home_team"], files_dict["heatmap_away_team"], match_details["match_id"],
+            match_details["combo_id"], full_heatmaps=files_dict.get('heatmaps', {'None': None})
         )
         # ================== ========================================================>
 
         # READ THE CSV FILES ========================================================>
-        game_summary = rdmcsv.combine_dfs(
-            all_files_in_memory['Home_Team_Summary.csv'],all_files_in_memory['Away_Team_Summary.csv'], 
+        game_summary = rd_csv.combine_dfs(
+            files_dict['Home_Team_Summary.csv'],files_dict['Away_Team_Summary.csv'], 
             match_details["combo_id"], match_details["match_id"]
         )
-        adv_pass_types = rdmcsv.combine_dfs(
-            all_files_in_memory["Home_Team_Pass_Types.csv"], all_files_in_memory["Away_Team_Pass_Types.csv"],
+        adv_pass_types = rd_csv.combine_dfs(
+            files_dict["Home_Team_Pass_Types.csv"], files_dict["Away_Team_Pass_Types.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
-        advanced_passing = rdmcsv.combine_dfs(
-            all_files_in_memory["Home_Team_Passing.csv"], all_files_in_memory["Away_Team_Passing.csv"],
+        advanced_passing = rd_csv.combine_dfs(
+            files_dict["Home_Team_Passing.csv"], files_dict["Away_Team_Passing.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
-        advanced_defending = rdmcsv.combine_dfs(
-            all_files_in_memory["Home_Team_Defense.csv"], all_files_in_memory["Away_Team_Defense.csv"],
+        advanced_defending = rd_csv.combine_dfs(
+            files_dict["Home_Team_Defense.csv"], files_dict["Away_Team_Defense.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
-        advanced_possession = rdmcsv.combine_dfs(
-            all_files_in_memory["Home_Team_Possession.csv"], all_files_in_memory["Away_Team_Possession.csv"],
+        advanced_possession = rd_csv.combine_dfs(
+            files_dict["Home_Team_Possession.csv"], files_dict["Away_Team_Possession.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
-        misc_stats = rdmcsv.combine_dfs(
-            all_files_in_memory["Home_Team_Miscellaneous.csv"], all_files_in_memory["Away_Team_Miscellaneous.csv"],
+        misc_stats = rd_csv.combine_dfs(
+            files_dict["Home_Team_Miscellaneous.csv"], files_dict["Away_Team_Miscellaneous.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
-        gk_stats = rdmcsv.combine_gk(
-            all_files_in_memory["Home_Team_Keeper.csv"], all_files_in_memory["Away_Team_Keeper.csv"],
+        gk_stats = rd_csv.combine_gk(
+            files_dict["Home_Team_Keeper.csv"], files_dict["Away_Team_Keeper.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
-        shot_data = rdmcsv.shot_data(
-            all_files_in_memory["Shot_Data.csv"],
+        shot_data = rd_csv.shot_data(
+            files_dict["Shot_Data.csv"],
             match_details["combo_id"], match_details["match_id"]
         )
         # ================== ========================================================>
@@ -348,30 +303,3 @@ def process_data(combo_id: str, all_files_in_memory: dict) -> pd.DataFrame:
     }
 
     return all_data
-
-def notify_oci(context):
-    
-    dag_run = context.get("dag_run")
-    task_instance = context.get("task_instance")
-    
-    dag_id = dag_run.dag_id
-    task_id = task_instance.task_id
-    state = task_instance.state
-    
-    body = (
-        # Use the string variable task_id directly (not task_id.task_id)
-        f"Task {task_id} failed in DAG {dag_id}.\n" 
-        # Access execution_date from the dag_run object
-        # f"Execution Time: {dag_run.execution_date}\n" 
-        # Access log_url from the task_instance object
-        # f"Log URL: {task_instance.log_url}\n" 
-    )
-    
-    NOTIFICATION.publish_message(
-        TOPIC_ID,
-        oci.ons.models.MessageDetails(
-            title=f"Airflow Alert: {state.upper()}",
-            body=body
-        )
-    )
-

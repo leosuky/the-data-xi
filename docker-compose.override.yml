@@ -5,7 +5,8 @@ services:
       - the_data_xi_net
     volumes:
       - C:/Users/Leosuky/.dbt:/home/astro/.dbt
-      - ./the_data_xi_dbt://usr/local/airflow/the_data_xi_dbt
+      - ./the_data_xi_dbt:/usr/local/airflow/the_data_xi_dbt
+      - ./data:/usr/local/airflow/data
     entrypoint: ["./init.sh"]
     command: ["airflow", "api-server"]
 

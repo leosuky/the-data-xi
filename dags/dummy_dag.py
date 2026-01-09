@@ -17,22 +17,22 @@ DBT_PROJECT_ROOT = "/usr/local/airflow/the_data_xi_dbt"
 )
 def dummy_dag():
     
-    @task
-    def task_1():
-        HOST=os.environ.get("POSTGRES_HOST")
-        PORT=os.environ.get("POSTGRES_PORT")
-        DB_NAME=os.environ.get("POSTGRES_DB")
-        DB_USER=os.environ.get("POSTGRES_USER")
-        DB_PASSWORD=os.environ.get("POSTGRES_PASSWORD")
+    # @task
+    # def task_1():
+    #     HOST=os.environ.get("POSTGRES_HOST")
+    #     PORT=os.environ.get("POSTGRES_PORT")
+    #     DB_NAME=os.environ.get("POSTGRES_DB")
+    #     DB_USER=os.environ.get("POSTGRES_USER")
+    #     DB_PASSWORD=os.environ.get("POSTGRES_PASSWORD")
 
-        print(f"{HOST}@{PORT}/{DB_USER}:{DB_PASSWORD}/{DB_NAME}")
-        return {
-            "HOST": HOST,
-            "PORT": PORT,
-            "DB_NAME": DB_NAME,
-            "PASSWORD": DB_PASSWORD,
-            "USER": DB_USER
-        }
+    #     print(f"{HOST}@{PORT}/{DB_USER}:{DB_PASSWORD}/{DB_NAME}")
+    #     return {
+    #         "HOST": HOST,
+    #         "PORT": PORT,
+    #         "DB_NAME": DB_NAME,
+    #         "PASSWORD": DB_PASSWORD,
+    #         "USER": DB_USER
+    #     }
     
     # run_dbt_model = BashOperator(
     #     task_id='run_dbt_model',
@@ -40,15 +40,30 @@ def dummy_dag():
     #     bash_command='dbt debug',
     #     cwd='/usr/local/airflow/the_data_xi_dbt'
     # )
-    @task
-    def task2():
-        hook = PostgresHook(postgres_conn_id="the_data_xi_postgres")
-        try:
-            xd = hook.get_records(f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'raw' AND table_name   = 'misc_json_data';")
-            print(f'Table  == {xd}')
-        except Exception as err:
-            print(f"An Error occured: {err}")
 
-    task_1() >> task2()
+    @task
+    def get_postgres_env():
+        hook = PostgresHook(postgres_conn_id="the_data_xi_postgres")
+        conn = hook.get_connection("the_data_xi_postgres")
+        return {
+            "PGHOST": conn.host,
+            "PGPORT": str(conn.port),
+            "PGUSER": conn.login,
+            "PGPASSWORD": conn.password,
+            "PGDATABASE": conn.schema,
+        }
+
+    get_postgres_env()
+
+    # @task
+    # def task2():
+    #     hook = PostgresHook(postgres_conn_id="the_data_xi_postgres")
+    #     try:
+    #         xd = hook.get_records(f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'raw' AND table_name   = 'misc_json_data';")
+    #         print(f'Table  == {xd}')
+    #     except Exception as err:
+    #         print(f"An Error occured: {err}")
+
+    # task_1() >> task2()
 
 dummy_dag()
