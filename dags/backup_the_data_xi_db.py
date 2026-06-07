@@ -24,10 +24,8 @@ log = logging.getLogger(__name__)
     catchup=False,
     # default_args=default_args,
     tags=["backup", "the_data_xi", "postgres"],
-    default_args={
-        'on_failure_callback': etl_oci.notify_on_failure,
-        'on_success_callback': etl_oci.notify_on_success
-    }
+    on_failure_callback=etl_oci.notify_on_failure,
+    on_success_callback=etl_oci.notify_on_success
 )
 def backup_the_data_xi_db():
 
@@ -45,7 +43,7 @@ def backup_the_data_xi_db():
 
     # Generate timestamped backup filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_file = f"/usr/local/airflow/pg_backup/the_data_xi_{timestamp}.dump"
+    backup_file = f"/usr/local/airflow/the_data_xi_{timestamp}.dump"
     PG_DUMP_CMD = f"""pg_dump -Fc \
             --host=$PGHOST \
             --port=$PGPORT \
@@ -54,8 +52,7 @@ def backup_the_data_xi_db():
             --file={backup_file}"""
     
     PG_DUMP_CONFIRM = f'ls -lh {backup_file}'
-    PG_CLEANUP = f"""cd /usr/local/airflow/pg_backup && \
-        ls -t the_data_xi_*.dump | tail -n +8 | xargs rm -f"""
+
 
     @task
     def pg_dump_backup():

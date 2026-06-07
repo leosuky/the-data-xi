@@ -19,10 +19,10 @@ DBT_RUN = "dbt run --select staging --profiles-dir /usr/local/airflow/the_data_x
     schedule='@daily',
     catchup=False,
     tags=['etl', 'the_data_xi', 'football', 'Oracle Cloud', 'OCI'],
+    on_failure_callback=etl_oci.notify_on_failure,
+    on_success_callback=etl_oci.notify_on_success,
     default_args={
         'postgres_conn_id': 'the_data_xi_postgres',
-        'on_failure_callback': etl_oci.notify_on_failure,
-        'on_success_callback': etl_oci.notify_on_success
     }
 )
 def the_data_xi_etl_oci():

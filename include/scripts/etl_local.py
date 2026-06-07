@@ -208,7 +208,7 @@ def process_data(match: dict) -> dict[pd.DataFrame]:
             player_data["home_formation"], player_data["away_formation"]
         ) # match, match_id, combo_id
 
-        odds_data = rd_json.odds_table(files_dict["odds_all"], match_details["combo_id"])
+        odds_data = rd_json.odds_table(files_dict["odds_all"], match_details["combo_id"], match_details["match_id"])
 
         shots = rd_json.shots_table(files_dict["shotmap"], match_details["match_id"], match_details["combo_id"])
 
@@ -303,3 +303,4 @@ def process_data(match: dict) -> dict[pd.DataFrame]:
     }
 
     return all_data
+

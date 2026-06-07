@@ -53,8 +53,8 @@ def players(filepath: str) -> dict:
         row['player_id'] = player['player']['id']
         row['name'] = player['player']['name']
         row['position'] = player['position']
-        row['nationality'] = player['player']['country']['name']
-        row['birth_date'] = datetime.fromtimestamp(player['player']['dateOfBirthTimestamp'])
+        row['nationality'] = player['player']['country'].get('name')
+        row['birth_date'] = convert_timestamp_to_datetime(player['player'].get('dateOfBirthTimestamp'))
 
         players_list.append(row)
 
@@ -63,8 +63,8 @@ def players(filepath: str) -> dict:
         row['player_id'] = player['player']['id']
         row['name'] = player['player']['name']
         row['position'] = player['position']
-        row['nationality'] = player['player']['country']['name']
-        row['birth_date'] = datetime.fromtimestamp(player['player']['dateOfBirthTimestamp'])
+        row['nationality'] = player['player']['country'].get('name')
+        row['birth_date'] = convert_timestamp_to_datetime(player['player'].get('dateOfBirthTimestamp'))
 
         players_list.append(row)
 
@@ -91,7 +91,11 @@ def tournament_and_season(filepath: str) -> dict:
     row = {}
     row['tournament_id'] = event['event']['tournament']['uniqueTournament']['id']
     row['name'] = event['event']['tournament']['name']
-    row['country'] = event['event']['tournament']['category']['country']['name']
+    country = event['event']['tournament']['category']['country'].get('name')
+    if country:
+        row['country'] = country
+    else:
+        row['country'] = event['event']['tournament']['category'].get('name') 
     row['tier'] = event['event']['tournament']['competitionType']
 
     Tournament.append(row)
@@ -163,7 +167,7 @@ def teams_and_referee(filepath: str) -> dict:
     row = {}
     row['name'] = event['event']['referee']['name']
     row['id'] = event['event']['referee']['id']
-    row['nationality'] = event['event']['referee']['country']['name']
+    row['nationality'] = event['event']['referee']['country'].get('name')
     row['red_cards'] = event['event']['referee']['redCards']
     row['yellow_cards'] = event['event']['referee']['yellowCards']
     row['double_yellow_cards'] = event['event']['referee']['yellowRedCards']
@@ -234,7 +238,7 @@ def match_details(
         'hasGlobalHighlights', 'hasXg', 'hasEventPlayerStatistics', 'hasEventPlayerHeatMap', 'detailId', 
         'crowdsourcingDataDisplayEnabled', 'awayRedCards', 'defaultPeriodCount', 'defaultPeriodLength', 
         'defaultOvertimeLength', 'varInProgress', 'slug', 'currentPeriodStartTimestamp', 'finalResultOnly', 'feedLocked',
-        'fanRatingEvent', 'seasonStatisticsType', 'showTotoPromo', 'isEditor'
+        'fanRatingEvent', 'seasonStatisticsType', 'showTotoPromo', 'isEditor', 'eventFilters', 'eventState'
     ]
 
     match_data = {
@@ -253,11 +257,20 @@ def match_details(
 
     match_data.update({k: v for k, v in event["event"].items() if k not in drop_columns})
 
-    motm = {
-        'motm_rating': best_players['playerOfTheMatch']['value'],
-        'motm_player_name':best_players['playerOfTheMatch']['player']['name'],
-        'motm_player_id':best_players['playerOfTheMatch']['player']['id']
-    }
+    playerOfTheMatch = best_players.get('playerOfTheMatch')
+
+    if playerOfTheMatch:
+        motm = {
+            'motm_rating': best_players['playerOfTheMatch']['value'],
+            'motm_player_name':best_players['playerOfTheMatch']['player']['name'],
+            'motm_player_id':best_players['playerOfTheMatch']['player']['id']
+        }
+    else:
+        motm = {
+            'motm_rating': None,
+            'motm_player_name':None,
+            'motm_player_id':None
+        }
 
     match_data.update(motm)
 
@@ -277,29 +290,34 @@ def match_details(
 
     return data
 
-def odds_table(filepath: str, combo_id: str) -> pd.DataFrame:
+def odds_table(filepath: str, combo_id: str, mm_id: int) -> pd.DataFrame:
     with open(filepath, 'r', encoding='utf-8') as file:
         odds = json.load(file)
 
-    match_id = odds['eventId']
+    match_id = odds.get('eventId')
 
-    odds_dict = {}
-    odds_dict["match_id"] = match_id
-    odds_dict["combo_id"] = combo_id
+    if match_id:
+        odds_dict = {}
+        odds_dict["match_id"] = match_id
+        odds_dict["combo_id"] = combo_id
 
-    market_groups = ["1X2", "Double chance", "Both teams to score", "Match goals"]
+        market_groups = ["1X2", "Double chance", "Both teams to score", "Match goals"]
 
-    for i in odds['markets']:
-        period = i.get('marketPeriod')
-        group = i.get('marketGroup')
-        choice = i.get('choiceGroup') + '_' if i.get('choiceGroup') else ''
-        # winner = None
-        if group in market_groups:
-            for j in i['choices']:
-                odds_dict[f"{period}_{group}_{choice}{j['name']}"] = j['fractionalValue']
-            for j in i['choices']:
-                if j.get('winning') == True:
-                    odds_dict[f"{period}_{group}_{choice}winning"] = j['name']
+        for i in odds['markets']:
+            period = i.get('marketPeriod')
+            group = i.get('marketGroup')
+            choice = i.get('choiceGroup') + '_' if i.get('choiceGroup') else ''
+            # winner = None
+            if group in market_groups:
+                for j in i['choices']:
+                    odds_dict[f"{period}_{group}_{choice}{j['name']}"] = j['fractionalValue']
+                for j in i['choices']:
+                    if j.get('winning') == True:
+                        odds_dict[f"{period}_{group}_{choice}winning"] = j['name']
+    else:
+        odds_dict = {}
+        odds_dict["match_id"] = mm_id
+        odds_dict["combo_id"] = combo_id
 
     odds_df = pd.DataFrame([odds_dict])
     time_i = datetime.now(timezone.utc)
@@ -346,7 +364,7 @@ def player_stats(filepath: str, match_id: int, combo_id: str, home_id: int, away
     player_stats = []
 
     for player in lineups['home']['players']:
-        if player['statistics']:
+        if player.get('statistics'):
             row = {}
             row['match_id'] = match_id
             row["combo_id"] = combo_id
@@ -366,7 +384,7 @@ def player_stats(filepath: str, match_id: int, combo_id: str, home_id: int, away
             player_stats.append(row)
 
     for player in lineups['away']['players']:
-        if player['statistics']:
+        if player.get('statistics'):
             row = {}
             row['match_id'] = match_id
             row["combo_id"] = combo_id
@@ -407,11 +425,11 @@ def lineups_table(filepath: str, match_id: int, combo_id: str, home_id: int, awa
         row['is_home_team'] = True
         row['player_id'] = lineups['home']['players'][i]['player']['id']
         row['is_starter'] = not lineups['home']['players'][i]['substitute']
-        minutes = 'minutesPlayed' in lineups['home']['players'][i]['statistics']
+        stats = lineups['home']['players'][i].get('statistics')
         captain = 'captain' in lineups['home']['players'][i]
         row['is_captain'] = captain
-        row['minutes_played'] = lineups['home']['players'][i]['statistics']['minutesPlayed'] if minutes else 0
-        row['shirt_number'] = lineups['home']['players'][i]['shirtNumber']
+        row['minutes_played'] = lineups['home']['players'][i]['statistics'].get('minutesPlayed') if stats else 0
+        row['shirt_number'] = lineups['home']['players'][i].get('shirtNumber')
         row['position'] = lineups['home']['players'][i]['position']
 
         lineup_data.append(row)
@@ -424,11 +442,11 @@ def lineups_table(filepath: str, match_id: int, combo_id: str, home_id: int, awa
         row['is_home_team'] = False
         row['player_id'] = lineups['away']['players'][i]['player']['id']
         row['is_starter'] = not lineups['away']['players'][i]['substitute']
-        minutes = 'minutesPlayed' in lineups['away']['players'][i]['statistics']
+        stats = lineups['away']['players'][i].get('statistics')
         captain = 'captain' in lineups['away']['players'][i]
         row['is_captain'] = captain
-        row['minutes_played'] = lineups['away']['players'][i]['statistics']['minutesPlayed'] if minutes else 0
-        row['shirt_number'] = lineups['away']['players'][i]['shirtNumber']
+        row['minutes_played'] = lineups['away']['players'][i]['statistics'].get('minutesPlayed') if stats else 0
+        row['shirt_number'] = lineups['away']['players'][i].get('shirtNumber')
         row['position'] = lineups['away']['players'][i]['position']
 
         lineup_data.append(row)

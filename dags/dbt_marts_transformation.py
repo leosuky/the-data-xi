@@ -16,12 +16,12 @@ DBT_PROJECT_DIR = "/usr/local/airflow/the_data_xi_dbt" # Path to your dbt projec
     schedule=None,  # This DAG will be triggered by another DAG
     catchup=False,
     tags=['dbt', 'marts', 'the_data_xi'],
+    on_failure_callback=etl_oci.notify_on_failure,
+    on_success_callback=etl_oci.notify_on_success,
     default_args={
         'owner': 'airflow',
         # Best practice: point dbt profiles dir to a path inside the project
         'env': {'DBT_PROFILES_DIR': '.'},
-        'on_failure_callback': etl_oci.notify_on_failure,
-        'on_success_callback': etl_oci.notify_on_success
     }
 )
 def dbt_marts_dag():

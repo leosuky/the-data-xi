@@ -1,3 +1,10 @@
+-- depends_on: {{ ref('stg_match_details') }}
+-- depends_on: {{ ref('stg_tournaments') }}
+-- depends_on: {{ ref('stg_seasons') }}
+-- depends_on: {{ ref('stg_referee') }}
+-- depends_on: {{ ref('stg_managers') }}
+-- depends_on: {{ ref('stg_match_stats') }}
+
 {{
     config(
         description='Core dimension table for matches. One row per match.',

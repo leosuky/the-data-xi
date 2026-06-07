@@ -1,3 +1,5 @@
+-- depends_on: {{ ref('stg_teams') }}
+
 {{
     config(
         description='Core dimension table for teams. One row per team.',

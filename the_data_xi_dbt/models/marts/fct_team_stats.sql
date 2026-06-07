@@ -1,3 +1,5 @@
+-- depends_on: {{ ref('int_team_stats_full') }}
+
 {{
     config(
         description='Wide team performance table. One row per team per match.',

@@ -1,3 +1,5 @@
+-- depends_on: {{ ref('stg_odds_data') }}
+
 {{
     config(
         description='Betting odds per match. One row per match.',

@@ -107,9 +107,9 @@ models:
         tests:
           - not_null
       
-      - name: birth_date
-        tests:
-          - not_null
+      # - name: birth_date
+      #   tests:
+      #     - not_null
 
 
   # =============

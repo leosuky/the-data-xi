@@ -1,3 +1,5 @@
+-- depends_on: {{ ref('stg_player_data') }}
+
 {{
     config(
         description='Core dimension table for players. One row per player.',

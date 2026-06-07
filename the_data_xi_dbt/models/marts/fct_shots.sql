@@ -1,3 +1,6 @@
+-- depends_on: {{ ref('stg_shots') }}
+-- depends_on: {{ ref('stg_advanced_shot_data') }}
+
 {{
     config(
         description="Event-level shot data. One row per shot per match.",
