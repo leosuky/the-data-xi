@@ -3,7 +3,7 @@
 -- ============================================================================
 
 -- Set the schema path if you haven't already in your session
-SET search_path TO raw;
+-- SET search_path TO raw;
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║  WHOSCORED (ws_)                                                           ║
@@ -35,29 +35,17 @@ SELECT * FROM raw.ws_player_discipline where combo_id = '2022-10-29NapSas';
 SELECT * FROM raw.ws_player_possession where combo_id = '2022-10-29NapSas';
 -- dribbles lost discrepancy
 
--- Event & Spatial Data
-SELECT * FROM raw.ws_sequences where combo_id = '2022-10-29NapSas';
-SELECT * FROM raw.ws_pass_map where combo_id = '2022-10-29NapSas';
-SELECT * FROM raw.ws_pass_network where combo_id = '2022-10-29NapSas';
-SELECT * FROM raw.ws_avg_positions where combo_id = '2022-10-29NapSas';
-
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║  FOTMOB (fot_)                                                             ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
-SELECT * FROM raw.fot_match LIMIT 10;
-SELECT * FROM raw.fot_lineups where combo_id = '2022-10-29NapSas';
--- remove unavailable_type and unavailable_reason
-
-SELECT * FROM raw.fot_player_stats where combo_id = '2022-10-29NapSas';
-SELECT * FROM raw.fot_team_stats where combo_id = '2022-10-29NapSas';
--- transposed
-
-SELECT * FROM raw.fot_shots where combo_id = '2022-10-29NapSas';
--- no data
-
-SELECT * FROM raw.fot_spatial;
+-- SELECT * FROM raw.fot_match LIMIT 10;
+-- SELECT * FROM raw.fot_lineups LIMIT 10;
+-- SELECT * FROM raw.fot_player_stats LIMIT 10;
+-- SELECT * FROM raw.fot_team_stats LIMIT 10;
+-- SELECT * FROM raw.fot_shots LIMIT 10;
+-- SELECT * FROM raw.fot_spatial LIMIT 10;
 
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -65,42 +53,28 @@ SELECT * FROM raw.fot_spatial;
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 -- Core Entities
-SELECT * FROM raw.sofa_tournaments LIMIT 10;
--- remove combo_id
-
-SELECT * FROM raw.sofa_seasons LIMIT 10;
--- remove combo_id and seasoncoverageinfo
-
-SELECT * FROM raw.sofa_teams LIMIT 10;
--- remove combo_id
-
-
-SELECT * FROM raw.sofa_players LIMIT 10;
--- combo_id
-
-SELECT * FROM raw.sofa_referees LIMIT 10;
--- combo_id
-
-SELECT * FROM raw.sofa_managers LIMIT 10;
--- combo_id
+-- SELECT * FROM raw.sofa_tournaments LIMIT 10;
+-- SELECT * FROM raw.sofa_seasons LIMIT 10;
+-- SELECT * FROM raw.sofa_teams LIMIT 10;
+-- SELECT * FROM raw.sofa_players LIMIT 10;
+-- SELECT * FROM raw.sofa_referees LIMIT 10;
+-- SELECT * FROM raw.sofa_managers LIMIT 10;
 
 -- Match Data & Lineups
-SELECT * FROM raw.sofa_matches LIMIT 10;
-SELECT * FROM raw.sofa_lineups where combo_id = '2022-10-29NapSas';
-SELECT * FROM raw.sofa_missing_players where combo_id = '2022-10-29NapSas';
+-- SELECT * FROM raw.sofa_matches LIMIT 10;
+-- SELECT * FROM raw.sofa_lineups LIMIT 10;
+-- SELECT * FROM raw.sofa_missing_players LIMIT 10;
 
 -- Match Events & Stats
-SELECT * FROM raw.sofa_player_stats where combo_id = '2022-10-29NapSas';
-SELECT * FROM raw.sofa_match_stats where combo_id = '2022-10-29NapSas';
--- transpose
-
-SELECT * FROM raw.sofa_shots where combo_id = '2022-10-29NapSas';
-SELECT * FROM raw.sofa_odds where combo_id = '2022-10-29NapSas';
-SELECT * FROM raw.sofa_spatial LIMIT 10;
+-- SELECT * FROM raw.sofa_player_stats LIMIT 10;
+-- SELECT * FROM raw.sofa_match_stats LIMIT 10;
+-- SELECT * FROM raw.sofa_shots LIMIT 10;
+-- SELECT * FROM raw.sofa_odds LIMIT 10;
+-- SELECT * FROM raw.sofa_spatial LIMIT 10;
 
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║  ODDSPEDIA (oddsp_)                                                        ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
-SELECT * FROM raw.oddsp_odds where combo_id = '2022-10-29NapSas';
+-- SELECT * FROM raw.oddsp_odds LIMIT 10;

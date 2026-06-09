@@ -88,58 +88,9 @@ def _push_table(cur, table, rows, conflict_cols, schema, combo_id,
 # SOFASCORE RESHAPE HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
-# read_json_data.py emits some tables WIDE; the RAW schema keeps them LONG
-# (better for analytics). These helpers reshape wide DataFrames into long rows.
-
-_MS_STAT_SUFFIXES = ('_homevalue', '_awayvalue', '_hometotal', '_awaytotal')
-_MS_SUFFIX_SLOT = {
-    '_homevalue': 'home_value', '_awayvalue': 'away_value',
-    '_hometotal': 'home_total', '_awaytotal': 'away_total',
-}
-_MS_SKIP = {'period', 'match_id', 'combo_id', 'row_id', 'ingested_at'}
-
-
-def _melt_match_stats_long(df, combo_id):
-    """
-    Reshape wide match-stats (one column per stat×side×period) into long rows:
-    one row per (period, stat_name) with home/away value+total.
-
-    Stat names are recovered by stripping the fixed suffix only, so stat names
-    that themselves contain underscores (e.g. 'long_balls') stay intact.
-    """
-    if df is None or not hasattr(df, 'to_dict') or len(df) == 0:
-        return []
-
-    out = []
-    for rec in df.to_dict('records'):
-        period = rec.get('period')
-        mid = rec.get('match_id')
-        ing = rec.get('ingested_at')
-        stats: dict[str, dict] = {}
-        for col, val in rec.items():
-            if col in _MS_SKIP:
-                continue
-            suffix = next((s for s in _MS_STAT_SUFFIXES if col.endswith(s)), None)
-            if not suffix:
-                continue
-            stat = col[: -len(suffix)]
-            slot = _MS_SUFFIX_SLOT[suffix]
-            stats.setdefault(stat, {})[slot] = (None if val is None else str(val))
-        for stat, vals in stats.items():
-            out.append({
-                'combo_id':   combo_id,
-                'match_id':   mid,
-                'period':     period,
-                'stat_group': None,          # wide source carries no group label
-                'stat_name':  stat,
-                'home_value': vals.get('home_value'),
-                'away_value': vals.get('away_value'),
-                'home_total': vals.get('home_total'),
-                'away_total': vals.get('away_total'),
-                'ingested_at': ing,
-            })
-    return out
-
+# read_json_data.py emits Sofascore odds WIDE; we store it long. This helper
+# reshapes the wide odds frame into long rows. (sofa_match_stats and
+# fot_team_stats are kept WIDE — see their loaders.)
 
 _ODDS_SKIP = {'match_id', 'combo_id', 'ingested_at'}
 
@@ -179,6 +130,36 @@ _SOFA_ID_REMAP = {
     'sofa_managers': 'manager_id',
     'sofa_shots':    'shot_id',
 }
+
+
+# fot_team_stats arrives long (one row per stat); we store it wide (one row per
+# period, two columns per stat). Redundant per-stat metadata (group, stat_title,
+# stat_format, highlighted) is dropped — stat_key becomes the column basis.
+_TS_DROP = {'group', 'stat_group', 'stat_key', 'stat_title',
+            'home_value', 'away_value', 'stat_format', 'highlighted'}
+
+
+def _pivot_team_stats_wide(rows):
+    """Pivot long Fotmob team stats to wide: one row per (combo_id, period)."""
+    if not rows:
+        return []
+    wide: dict = {}
+    for r in rows:
+        key = (r.get('combo_id'), r.get('fotmob_id'), r.get('period'))
+        base = wide.setdefault(key, {
+            'combo_id':  r.get('combo_id'),
+            'fotmob_id': r.get('fotmob_id'),
+            'period':    r.get('period'),
+        })
+        # carry through any non-redundant scalar columns once
+        for k, v in r.items():
+            if k not in _TS_DROP and k not in base:
+                base[k] = v
+        stat = r.get('stat_key')
+        if stat:
+            base[f'{stat}_home'] = r.get('home_value')
+            base[f'{stat}_away'] = r.get('away_value')
+    return list(wide.values())
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -316,10 +297,8 @@ def _load_fotmob(cur, fm_data, fm_id, combo_id, schema):
                 m['at_coach_id'] = c.get('coach_id')
                 m['at_coach_name'] = c.get('coach_name')
 
-    # ── Rename the reserved word `group` → `stat_group` on team stats ──
-    for r in (result.get('team_stats') or []):
-        if 'group' in r:
-            r['stat_group'] = r.pop('group')
+    # ── Pivot team stats long → wide (one row per period, stat pairs) ──
+    result['team_stats'] = _pivot_team_stats_wide(result.get('team_stats') or [])
 
     # Tables with their conflict keys (fot_coaches intentionally absent)
     table_config = {
@@ -450,11 +429,10 @@ def _load_sofascore(cur, sf_dir, combo_id, schema):
 
     if stats_path:
         try:
+            # Wide format: one row per period (FULL-TIME / FIRST-HALF /
+            # SECOND-HALF), one column per stat. Stat columns auto-added.
             df_tables['sofa_match_stats'] = (
-                _melt_match_stats_long(
-                    rd_json.match_stats(stats_path, match_id, combo_id),
-                    combo_id,
-                ),
+                rd_json.match_stats(stats_path, match_id, combo_id),
                 []
             )
         except Exception:

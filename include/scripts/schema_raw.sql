@@ -742,8 +742,6 @@ CREATE TABLE IF NOT EXISTS fot_lineups (
     country_code            TEXT,
     rating                  NUMERIC(3,1),
     formation               TEXT,
-    unavailable_type        TEXT,
-    unavailable_reason      TEXT,
     UNIQUE (combo_id, player_id)
 );
 
@@ -774,18 +772,14 @@ CREATE TABLE IF NOT EXISTS fot_player_stats (
 
 -- ── Team stats (one row per stat per period) ─────────────────────────────────
 
+-- Wide format: one row per (combo_id, period); two columns per stat
+-- ({stat_key}_home / {stat_key}_away), auto-added at load time. Redundant
+-- per-stat metadata (group, stat_title, stat_format, highlighted) is dropped.
 CREATE TABLE IF NOT EXISTS fot_team_stats (
     id                      BIGSERIAL PRIMARY KEY,
     fotmob_id               INTEGER NOT NULL,
     combo_id                TEXT NOT NULL,
-    period                  TEXT,        -- 'All', '1st', '2nd'
-    stat_group              TEXT,        -- 'Top stats', 'Shots', 'Passes', etc.
-    stat_key                TEXT,        -- 'expected_goals', 'total_shots', etc.
-    stat_title              TEXT,        -- 'Expected goals (xG)', 'Total shots', etc.
-    home_value              TEXT,
-    away_value              TEXT,
-    stat_format             TEXT,
-    highlighted             TEXT
+    period                  TEXT         -- 'All', '1st', '2nd'
 );
 
 -- ── Shots (shotmap with xG/xGOT) ────────────────────────────────────────────
@@ -794,7 +788,7 @@ CREATE TABLE IF NOT EXISTS fot_shots (
     id                      BIGSERIAL PRIMARY KEY,
     fotmob_id               INTEGER NOT NULL,
     combo_id                TEXT NOT NULL,
-    shot_id                 INTEGER,
+    shot_id                 BIGINT,
     event_type              TEXT,
     team_id                 INTEGER,
     player_id               INTEGER,
@@ -847,7 +841,6 @@ CREATE TABLE IF NOT EXISTS fot_spatial (
 
 CREATE TABLE IF NOT EXISTS sofa_tournaments (
     id                      BIGSERIAL PRIMARY KEY,
-    combo_id                TEXT,
     tournament_id           INTEGER,
     name                    TEXT,
     country                 TEXT,
@@ -858,7 +851,6 @@ CREATE TABLE IF NOT EXISTS sofa_tournaments (
 
 CREATE TABLE IF NOT EXISTS sofa_seasons (
     id                      BIGSERIAL PRIMARY KEY,
-    combo_id                TEXT,
     season_id               INTEGER,
     name                    TEXT,
     year                    TEXT,
@@ -870,7 +862,6 @@ CREATE TABLE IF NOT EXISTS sofa_seasons (
 
 CREATE TABLE IF NOT EXISTS sofa_teams (
     id                      BIGSERIAL PRIMARY KEY,
-    combo_id                TEXT,
     team_id                 INTEGER,
     name                    TEXT,
     stadium                 TEXT,
@@ -886,7 +877,6 @@ CREATE TABLE IF NOT EXISTS sofa_teams (
 
 CREATE TABLE IF NOT EXISTS sofa_players (
     id                      BIGSERIAL PRIMARY KEY,
-    combo_id                TEXT,
     player_id               INTEGER,
     name                    TEXT,
     position                TEXT,
@@ -898,7 +888,6 @@ CREATE TABLE IF NOT EXISTS sofa_players (
 
 CREATE TABLE IF NOT EXISTS sofa_referees (
     id                      BIGSERIAL PRIMARY KEY,
-    combo_id                TEXT,
     referee_id              INTEGER,
     name                    TEXT,
     nationality             TEXT,
@@ -912,7 +901,6 @@ CREATE TABLE IF NOT EXISTS sofa_referees (
 
 CREATE TABLE IF NOT EXISTS sofa_managers (
     id                      BIGSERIAL PRIMARY KEY,
-    combo_id                TEXT,
     manager_id              INTEGER,
     name                    TEXT,
     slug                    TEXT,
@@ -992,19 +980,14 @@ CREATE TABLE IF NOT EXISTS sofa_player_stats (
     -- expectedgoals, totaltackle, saves, …) auto-added as TEXT by loader.
 );
 
--- Long format: one row per (period, stat_name). home/away value + the "x of y"
--- total where Sofascore reports one (e.g. long balls 12/20).
+-- Wide format: one row per period (FULL-TIME / FIRST-HALF / SECOND-HALF),
+-- one column per stat ({stat}_homevalue / {stat}_awayvalue, plus _hometotal /
+-- _awaytotal where Sofascore reports an "x of y"). Stat columns auto-added.
 CREATE TABLE IF NOT EXISTS sofa_match_stats (
     id                      BIGSERIAL PRIMARY KEY,
     combo_id                TEXT NOT NULL,
     match_id                INTEGER,
     period                  TEXT,
-    stat_group              TEXT,
-    stat_name               TEXT,
-    home_value              TEXT,
-    away_value              TEXT,
-    home_total              TEXT,
-    away_total              TEXT,
     ingested_at             TEXT
 );
 
