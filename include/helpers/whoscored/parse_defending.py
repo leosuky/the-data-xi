@@ -173,9 +173,17 @@ def _aggregate(
 
     # Tackle zone distribution
     all_tack_evs = tackles + challenges
-    tack_own  = sum(1 for e in all_tack_evs if _zone(_flt(e.get('x',50))) == 'own_third')
-    tack_mid  = sum(1 for e in all_tack_evs if _zone(_flt(e.get('x',50))) == 'middle_third')
-    tack_fin  = sum(1 for e in all_tack_evs if _zone(_flt(e.get('x',50))) == 'final_third')
+    def _z(e): return _zone(_flt(e.get('x', 50)))
+    tack_own  = sum(1 for e in all_tack_evs if _z(e) == 'own_third')
+    tack_mid  = sum(1 for e in all_tack_evs if _z(e) == 'middle_third')
+    tack_fin  = sum(1 for e in all_tack_evs if _z(e) == 'final_third')
+    # Successful tackles by zone (numerator for per-zone success pct)
+    tack_won_own = sum(1 for e in tack_won if _z(e) == 'own_third')
+    tack_won_mid = sum(1 for e in tack_won if _z(e) == 'middle_third')
+    tack_won_fin = sum(1 for e in tack_won if _z(e) == 'final_third')
+    tack_pct_own = round(tack_won_own / tack_own * 100, 2) if tack_own else None
+    tack_pct_mid = round(tack_won_mid / tack_mid * 100, 2) if tack_mid else None
+    tack_pct_fin = round(tack_won_fin / tack_fin * 100, 2) if tack_fin else None
 
     # ── 2. Interceptions ──────────────────────────────────────────────────────
     int_head    = sum(1 for e in interceptions if _has(e, 'Head'))
@@ -205,6 +213,13 @@ def _aggregate(
     aer_own      = sum(1 for e in aerials if _zone(_flt(e.get('x',50))) == 'own_third')
     aer_mid      = sum(1 for e in aerials if _zone(_flt(e.get('x',50))) == 'middle_third')
     aer_fin      = sum(1 for e in aerials if _zone(_flt(e.get('x',50))) == 'final_third')
+    # Aerials won by zone (numerator for per-zone aerial win pct)
+    aer_won_own  = sum(1 for e in aer_won_raw if _zone(_flt(e.get('x',50))) == 'own_third')
+    aer_won_mid  = sum(1 for e in aer_won_raw if _zone(_flt(e.get('x',50))) == 'middle_third')
+    aer_won_fin  = sum(1 for e in aer_won_raw if _zone(_flt(e.get('x',50))) == 'final_third')
+    aer_pct_own  = round(aer_won_own / aer_own * 100, 2) if aer_own else None
+    aer_pct_mid  = round(aer_won_mid / aer_mid * 100, 2) if aer_mid else None
+    aer_pct_fin  = round(aer_won_fin / aer_fin * 100, 2) if aer_fin else None
     aer_total_n  = len(aerials) + len([e for e in fouls if _has(e, 'AerialFoul')])
     aer_won_pct  = round(aer_won_n / aer_total_n * 100, 2) if aer_total_n else None
     aer_def_won  = sum(1 for e in aer_def if _acc(e))
@@ -233,34 +248,68 @@ def _aggregate(
     def_act_total = (len(clearances) + len(blocked) + len(blocked_shots)
                      + len(interceptions) + tack_won_n)
 
-    # ── 7. Duels (per Opta definition) ────────────────────────────────────────
-    #
-    # IMPORTANT: ground_duels and total_duels are GAME-LEVEL SHARED counts.
-    # Both teams share the same number because each contest involves one player
-    # from each team. The per-team figures are wins and losses from that shared pool.
-    #
-    # GROUND DUEL UNIQUE CONTESTS:
-    # = unique paired events (OppositeRelatedEvent) from Tackle/Challenge/TakeOn/
-    #   Dispossessed/Foul(non-aerial) / 2  +  solo (unpaired) events
-    # Using a simpler approximation that closely matches:
-    #   = (paired T/C/TO/D events in game / 2) + unique non-aerial foul contests
-    # Verified: gives 84 vs Opta/Sofascore 83 (±1, same quirk as aerials)
-    # These values are passed in from parse_defending() which computes them at game level.
-    # For team-level rows, ground_duels is the same game-level value for both teams.
-    # Per-team: only wins and losses matter.
-    #
-    # AERIAL DUEL UNIQUE CONTESTS:
-    # = unique paired Aerial events / 2  +  aerial foul unique contests
-    # Verified: gives 46 ✅ matching Opta/Sofascore exactly.
-    #
-    # NOTE: interceptions and blocked passes are NOT duels (Opta definition).
+    # ── 7. Fouls (split won/drawn vs conceded/committed) ──────────────────────
+    # WhoScored records a Foul as a PAIR: outcome Successful = the fouled player
+    # (drew the foul / won the duel), outcome Unsuccessful = the fouler (conceded).
+    # fouls_conceded must therefore count only the Unsuccessful (committed) events.
+    fouls_committed = [e for e in fouls if not _acc(e)]
+    fouls_drawn     = [e for e in fouls if _acc(e)]
 
-    # Per-team duel wins (what THIS team won from the shared contests)
-    # Ground won: tackles won + takeons won + smothers + fouls won (= opponent non-aerial fouls / 2)
-    # Aerial won: aerial events won + aerial foul wins (= opponent aerial fouls)
-    # These are passed in from the caller (team-level) via ground_duels_won / aerial_duels_won params.
-    # For the output dict, ground_duels and total_duels = game-level shared values (same for both teams).
-    # ground_duels_won / total_duels_won = per-team performance from that pool.
+    # ── 8. Duels ──────────────────────────────────────────────────────────────
+    # Ground-duel win / loss EVENTS scoped to this entity (team or player).
+    #   wins  = all Tackle + TakeOn(succ) + Foul drawn (physical, non-aerial) + KeeperSweeper
+    #   losses= Challenge (dribbled past) + TakeOn(fail) + Dispossessed
+    #           + Foul committed (physical, non-aerial)
+    # The win set is identical to the verified team formula in _ground_duels_won(),
+    # so summing player wins reconciles to the team total. Losses are involvement
+    # counts (a player can lose a duel with no separately-counted winner event),
+    # exactly as Sofascore/Opta present per-player duels.
+    def _phys_foul(e):
+        return _has_qid(e, 13) and not _has_qid(e, 264)
+    gd_win_evs  = (list(tackles)
+                   + [e for e in takeons if _acc(e)]
+                   + [e for e in fouls_drawn if _phys_foul(e)]
+                   + list(smothers))
+    gd_loss_evs = (list(challenges)
+                   + [e for e in takeons if not _acc(e)]
+                   + list(dispossessed)
+                   + [e for e in fouls_committed if _phys_foul(e)])
+
+    # Per-zone ground-duel win pct (involvement-based: wins / (wins+losses) in zone)
+    def _zone_pct(win_evs, loss_evs, zone):
+        w = sum(1 for e in win_evs if _z(e) == zone)
+        t = w + sum(1 for e in loss_evs if _z(e) == zone)
+        return (w, t, round(w / t * 100, 2) if t else None)
+    gdw_own, gdt_own, gd_pct_own = _zone_pct(gd_win_evs, gd_loss_evs, 'own_third')
+    gdw_mid, gdt_mid, gd_pct_mid = _zone_pct(gd_win_evs, gd_loss_evs, 'middle_third')
+    gdw_fin, gdt_fin, gd_pct_fin = _zone_pct(gd_win_evs, gd_loss_evs, 'final_third')
+
+    is_player = player_id is not None
+    if is_player:
+        # Player rows: ground/aerial/total duels are this player's own involvements.
+        gd_total = len(gd_win_evs) + len(gd_loss_evs)
+        gd_won   = len(gd_win_evs)
+        gd_lost  = len(gd_loss_evs)
+        aer_total_out = aer_total_n
+        aer_lost_out  = aer_total_n - aer_won_n
+        aer_pct_out   = aer_won_pct
+        td_total = gd_total + aer_total_out
+        td_won   = gd_won + aer_won_n
+        td_lost  = td_total - td_won
+    else:
+        # Team rows: ground AND aerial duels are the verified zero-sum game pool
+        # (total = home_won + away_won; this team's losses = opponent's wins).
+        gd_total = game_ground_duels
+        gd_won   = ground_duels_won_param
+        gd_lost  = game_ground_duels - ground_duels_won_param
+        aer_total_out = game_aerial_duels
+        aer_lost_out  = game_aerial_duels - aer_won_n
+        aer_pct_out   = round(aer_won_n / game_aerial_duels * 100, 2) if game_aerial_duels else None
+        td_total = game_ground_duels + game_aerial_duels
+        td_won   = ground_duels_won_param + aer_won_n
+        td_lost  = td_total - td_won
+    gd_pct = round(gd_won / gd_total * 100, 2) if gd_total else None
+    td_pct = round(td_won / td_total * 100, 2) if td_total else None
 
     return {
         'whoscored_match_id':           match_id,
@@ -278,6 +327,12 @@ def _aggregate(
         'tackles_own_third':            tack_own,
         'tackles_middle_third':         tack_mid,
         'tackles_final_third':          tack_fin,
+        'tackles_won_own_third':        tack_won_own,
+        'tackles_won_middle_third':     tack_won_mid,
+        'tackles_won_final_third':      tack_won_fin,
+        'tackle_success_pct_own_third':    tack_pct_own,
+        'tackle_success_pct_middle_third': tack_pct_mid,
+        'tackle_success_pct_final_third':  tack_pct_fin,
         # 2. Interceptions
         'interceptions':                len(interceptions),
         'interceptions_headed':         int_head,
@@ -291,11 +346,12 @@ def _aggregate(
         'clearances_blocked_cross':     clear_cross,
         'clearances_in_own_box':        clear_box,
         'avg_clearance_distance_m':     avg_clear_dist,
-        # 4. Aerials (aerials_won includes aerial foul wins for correct game-level count)
-        'aerials_total':                aer_total_n,
+        # 4. Aerials (team rows zero-sum: total=game aerial duels, lost=opp won;
+        #    player rows = own involvements)
+        'aerials_total':                aer_total_out,
         'aerials_won':                  aer_won_n,
-        'aerials_lost':                 aer_total_n - aer_won_n,
-        'aerial_win_pct':               aer_won_pct,
+        'aerials_lost':                 aer_lost_out,
+        'aerial_win_pct':               aer_pct_out,
         'aerials_defensive':            len(aer_def),
         'aerials_offensive':            len(aer_off),
         'aerial_win_pct_defensive':     aer_def_pct,
@@ -303,6 +359,9 @@ def _aggregate(
         'aerials_own_third':            aer_own,
         'aerials_middle_third':         aer_mid,
         'aerials_final_third':          aer_fin,
+        'aerial_win_pct_own_third':     aer_pct_own,
+        'aerial_win_pct_middle_third':  aer_pct_mid,
+        'aerial_win_pct_final_third':   aer_pct_fin,
         # 5. Ball recoveries
         'ball_recoveries':              len(recoveries),
         'recoveries_own_third':         rec_own,
@@ -311,7 +370,8 @@ def _aggregate(
         # 6. Other defensive actions
         'blocked_passes':               len(blocked),
         'blocked_shots':                len(blocked_shots),
-        'fouls_conceded':               len(fouls),
+        'fouls_conceded':               len(fouls_committed),
+        'fouls_won':                    len(fouls_drawn),
         'dispossessed':                 len(dispossessed),
         'shield_ball_opp':              len(shields),
         'offsides_caught':              len(offside_prov),
@@ -327,19 +387,28 @@ def _aggregate(
         'press_actions_middle_third':   press_mid,
         'press_actions_final_third':    press_fin,
         'avg_defensive_line_height':    avg_def_height,
-        # 9. Duels (Opta definition)
-        # ground_duels = home_won + away_won (zero-sum game total, same for both teams)
-        # ground_duels_won = per-team wins; ground_duels_lost = game total - own wins
-        # aerial data already in Section 4 (not repeated here)
-        # ±1 vs Opta/Sofascore due to one WS event pairing gap per game
-        'ground_duels':          game_ground_duels,
-        'ground_duels_won':      ground_duels_won_param,
-        'ground_duels_lost':     game_ground_duels - ground_duels_won_param,
-        'ground_duel_win_pct':   round(ground_duels_won_param / game_ground_duels * 100, 2) if game_ground_duels else None,
-        'total_duels':           game_ground_duels + game_aerial_duels,
-        'total_duels_won':       ground_duels_won_param + aer_won_n,
-        'total_duels_lost':      (game_ground_duels + game_aerial_duels) - (ground_duels_won_param + aer_won_n),
-        'duel_win_pct':          round((ground_duels_won_param + aer_won_n) / (game_ground_duels + game_aerial_duels) * 100, 2) if (game_ground_duels + game_aerial_duels) else None,
+        # 9. Duels
+        # Team rows: ground_duels/total_duels are the verified game-level shared
+        #   pool (same for both teams); *_won are that team's wins.
+        # Player rows: ground_duels/total_duels are that player's own
+        #   involvements (won + lost). win = all Tackle + TakeOn(succ) +
+        #   physical Foul drawn + KeeperSweeper; loss = Challenge + TakeOn(fail)
+        #   + Dispossessed + physical Foul committed.
+        'ground_duels':          gd_total,
+        'ground_duels_won':      gd_won,
+        'ground_duels_lost':     gd_lost,
+        'ground_duel_win_pct':   gd_pct,
+        'total_duels':           td_total,
+        'total_duels_won':       td_won,
+        'total_duels_lost':      td_lost,
+        'duel_win_pct':          td_pct,
+        # 10. Ground-duel win pct by zone (involvement-based: wins/(wins+losses))
+        'ground_duels_own_third':          gdt_own,
+        'ground_duels_middle_third':       gdt_mid,
+        'ground_duels_final_third':        gdt_fin,
+        'ground_duel_win_pct_own_third':    gd_pct_own,
+        'ground_duel_win_pct_middle_third': gd_pct_mid,
+        'ground_duel_win_pct_final_third':  gd_pct_fin,
     }
 
 
@@ -415,18 +484,27 @@ def parse_defending(data: dict, whoscored_match_id: int) -> dict:
     away_gd_won       = _ground_duels_won(away_id)
     game_ground_duels = home_gd_won + away_gd_won
 
-    # Aerial duel unique contests:
-    #   = (paired Aerial events across both teams) / 2 + (aerial foul unique contests)
-    aerials_paired = [e for e in events
-                      if e['type']['displayName'] == 'Aerial'
-                      and e.get('teamId') in (home_id, away_id)
-                      and _has_qid(e, 233)]
-    aerial_fouls_paired = [e for e in events
-                           if e['type']['displayName'] == 'Foul'
-                           and e.get('teamId') in (home_id, away_id)
-                           and _has(e, 'AerialFoul')
-                           and _has_qid(e, 233)]
-    game_aerial_duels = len(aerials_paired) // 2 + len(aerial_fouls_paired) // 2
+    def _aerials_won(team_id: int) -> int:
+        """
+        Aerial-duel wins for one team = successful Aerial events + aerial-foul wins.
+        Mirrors the ground-duel approach: game_aerial_duels = home_won + away_won,
+        so the metric is structurally zero-sum (one team's win = the other's loss)
+        and immune to WhoScored's occasional ±1 aerial-event pairing gap.
+        """
+        return (
+            sum(1 for e in events if e.get('teamId') == team_id
+                and e['type']['displayName'] == 'Aerial'
+                and e.get('outcomeType', {}).get('value') == 1)
+            + sum(1 for e in events if e.get('teamId') == team_id
+                and e['type']['displayName'] == 'Foul'
+                and _has(e, 'AerialFoul')
+                and e.get('outcomeType', {}).get('value') == 1)
+        )
+
+    # ── Game-level aerial counts (zero-sum, shared by both teams) ─────────────
+    home_aer_won      = _aerials_won(home_id)
+    away_aer_won      = _aerials_won(away_id)
+    game_aerial_duels = home_aer_won + away_aer_won
 
     # ── Team-level ─────────────────────────────────────────────────────────────
     team_stats = []
