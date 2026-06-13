@@ -176,6 +176,8 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema):
     from include.helpers.whoscored.parse_discipline import parse_discipline
     from include.helpers.whoscored.parse_possession import parse_possession
     from include.helpers.whoscored.parse_advanced_possession import parse_possession_advanced
+    from include.helpers.whoscored.parse_shooting import parse_shooting
+    from include.helpers.whoscored.parse_game_state import parse_game_state
 
     total = 0
 
@@ -217,6 +219,7 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema):
         (parse_discipline,           'ws_team_discipline',  'ws_player_discipline',  'team', 'player'),
         (parse_possession,           'ws_team_possession',  'ws_player_possession',  'team', 'player'),
         (parse_possession_advanced,  'ws_team_poss_adv',    None,                    'team', None),
+        (parse_shooting,             'ws_team_shooting',    'ws_player_shooting',    'team', 'player'),
         (parse_goalkeeping,          None,                  'ws_player_goalkeep',    None,   'keepers'),
     ]
 
@@ -249,6 +252,12 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema):
                 total += _push_table(cur, 'ws_sequences', rows, [], schema,
                                      combo_id, delete_first=True)
 
+            # Special: per-shot rows (event-level) from parse_shooting
+            if result.get('shots'):
+                rows = [remap_row(r, combo_id) for r in result['shots']]
+                total += _push_table(cur, 'ws_shots', rows, [], schema,
+                                     combo_id, delete_first=True)
+
             # Special: pass_map, pass_network, avg_positions
             if result.get('pass_map'):
                 rows = [{**remap_row(r, combo_id), 'whoscored_match_id': ws_id}
@@ -270,6 +279,22 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema):
 
         except Exception as e:
             log.error(f'  WS parser for {team_table or player_table} failed: {e}')
+
+    # ── Game state (parse_game_state → 4 tables, regenerated per match) ──
+    try:
+        gs = parse_game_state(ws_data, ws_id)
+        for gs_key, gs_table in (
+            ('states',         'ws_game_states'),
+            ('team_states',    'ws_team_states'),
+            ('context_events', 'ws_context_events'),
+            ('team_state_agg', 'ws_team_state_agg'),
+        ):
+            if gs.get(gs_key):
+                rows = [remap_row(r, combo_id) for r in gs[gs_key]]
+                total += _push_table(cur, gs_table, rows, [], schema,
+                                     combo_id, delete_first=True)
+    except Exception as e:
+        log.error(f'  WS parse_game_state failed: {e}')
 
     log.info(f'  WhoScored: {total} rows loaded')
     return total
