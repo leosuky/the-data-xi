@@ -5,9 +5,10 @@ Parses WhoScored matchCentreData events into shooting stats.
 
 SHOT CLASSIFICATION
 -------------------
-WhoScored marks all shot attempts with isShot=True on three event types:
+WhoScored marks all shot attempts with isShot=True on four event types:
     Goal        (type 16)
     SavedShot   (type 15)
+    ShotOnPost  (type 14)  — hit the woodwork; a shot, counted OFF TARGET
     MissedShots (type 13)
 
 BlockedPass events (type 74) are the DEFENDER's perspective —
@@ -19,8 +20,8 @@ Total shots      = isShot=True events
 Shots on target  = Goal + SavedShot WITHOUT Blocked qualifier (QID 82)
 Blocked shots    = SavedShot WITH Blocked qualifier (QID 82)
                    An outfield player blocked it; keeper was not beaten.
-Shots off target = MissedShots
-                   Includes shots hitting the woodwork (still off target per Opta).
+Shots off target = MissedShots + ShotOnPost
+                   Shots hitting the woodwork are off target per Opta.
 
 Verified exact on 4 teams across 2 games vs Fotmob / Sofascore.
 
@@ -44,8 +45,11 @@ from collections import defaultdict
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-# Shot event type IDs
-SHOT_TYPES = {16, 15, 13}   # Goal, SavedShot, MissedShots
+# Shot event type IDs. ShotOnPost (14) carries isShot=True and IS a shot
+# (Sofascore/Opta/FBref all count shots off the woodwork) — it is OFF TARGET
+# (the post stopped it; no goal, no save). Verified: Newcastle-Sunderland is
+# 33 shots incl. one ShotOnPost, matching Sofascore's 16+17.
+SHOT_TYPES = {16, 15, 14, 13}   # Goal, SavedShot, ShotOnPost, MissedShots
 
 # Blocked qualifier — SavedShot WITH this = blocked shot (not SoT)
 QID_BLOCKED = 82
@@ -75,6 +79,168 @@ PATTERN_QS = {
     'RegularPlay', 'FromCorner', 'SetPiece',
     'FreekickTaken', 'FastBreak', 'ThrowinSetPiece',
 }
+
+# ── Shot-creating action (SCA) vocabulary ─────────────────────────────────────
+# FBref SCA = the (up to) two offensive actions by the shooting team directly
+# preceding a shot. Validated vs FBref across 2 matches (Parma-Lazio,
+# Juventus-Napoli 2018/19), 48 shots:
+#   SCA1 105/105 players, SCA2 105/105 players, event-type classification
+#   exact on all matched players. Validated across 4 matches (Parma-Lazio,
+#   Juventus-Napoli, Napoli-Sassuolo, Como-Inter), 105 shots.
+#
+# Two possession rules make the walk-back match FBref exactly:
+#   1. A reactive opponent touch (Clearance, BlockedPass, failed tackle, lost
+#      aerial, fleeting deflection) that drops straight back to the attacking
+#      team is TRANSPARENT — it does not reset shot creation, exactly as a
+#      saved shot rebounding to another shot leaves the first shot an SCA.
+#      A deliberate possession win (opponent completed pass / take-on / shot,
+#      or an Interception) DOES end the chain.
+#   2. A BallRecovery is transparent when the same team's ball-winning Tackle
+#      or Interception sits immediately before it — that defensive action is
+#      the creating action FBref credits.
+#
+# Ordering: WhoScored's delivered event order is used as-is. `eventId` is NOT
+# unique within a match and `id` is scrambled in some archived feeds, so
+# neither is used to re-sort; shots are located by object identity.
+#
+# Dead-ball pass qualifiers → 'Pass (Dead)', else 'Pass (Live)'.
+SCA_DEAD_BALL_PASS = {'ThrowIn', 'CornerTaken', 'FreekickTaken', 'GoalKick',
+                      'KickOff', 'IndirectFreekickTaken'}
+# Non-creditable own-team events that START/interrupt a possession. When
+# searching back for SCA2 we do not cross one of these (a recovery is where
+# the attack began, not a creating action). Interception/Tackle ARE creditable
+# (defensive-action SCA) so are deliberately excluded from this set.
+SCA_POSSESSION_START = {'BallRecovery', 'KeeperPickup', 'Save', 'Clearance',
+                        'BlockedPass'}
+# Opponent on-ball actions that end the attacking chain when walking back.
+SCA_BREAK_TYPES = {'Pass', 'TakeOn', 'Goal', 'SavedShot', 'MissedShots', 'ShotOnPost',
+                   'BallRecovery', 'Interception', 'Tackle', 'Clearance'}
+
+
+def _sca_time(e):
+    return e.get('expandedMinute', 0) * 60 + (e.get('second') or 0)
+
+
+def _sca_kind(e):
+    """FBref-style SCA label for an event, or None if not creditable."""
+    t = e['type']['displayName']
+    if t == 'Pass':
+        if not _acc(e):
+            return None
+        q = {qq['type']['displayName'] for qq in e.get('qualifiers', [])}
+        return 'Pass (Dead)' if (q & SCA_DEAD_BALL_PASS) else 'Pass (Live)'
+    if t == 'TakeOn':
+        return 'Take-On' if _acc(e) else None
+    if t in ('Goal', 'SavedShot', 'MissedShots', 'ShotOnPost'):
+        return 'Shot'
+    if t == 'Interception':
+        return 'Interception'
+    if t == 'Tackle':
+        return 'Tackle'
+    return None
+
+
+def _resolve_sca(sorted_events, shot_pos, max_lookback=12):
+    """
+    Walk backwards from the shot at position `shot_pos` in `sorted_events`
+    to find up to two shot-creating actions by the shooting team.
+
+    The build-up runs SCA2 -> SCA1 -> Shot, so SCA1 is the action IMMEDIATELY
+    before the shot and SCA2 is the one before SCA1. Walking backwards we meet
+    SCA1 first, hence returned list is [SCA1, SCA2] (length 0-2).
+
+    NB: WhoScored eventId is NOT unique within a match (it resets/repeats),
+    so the shot must be located by POSITION in the sorted stream, never by
+    eventId lookup.
+
+    Rules (validated vs FBref):
+      - Only the shooting team's offensive actions count.
+      - A drawn Foul is logged on both players; the fouled (Successful) side
+        is the creator and is credited when it belongs to the shooting team.
+      - BallRecovery / keeper actions / loose touches are possession
+        boundaries: SCA2 is not searched past the start of this possession.
+      - An opponent on-ball action ends the chain.
+      - If SCA1 is a rebound Shot, no SCA2 is credited.
+    """
+    shot = sorted_events[shot_pos]
+    team = shot.get('teamId')
+    found = []
+    i = shot_pos - 1
+    steps = 0
+    while i >= 0 and steps < max_lookback and len(found) < 2:
+        e = sorted_events[i]; steps += 1
+        et = e['type']['displayName']
+        eteam = e.get('teamId')
+
+        if et == 'Foul':
+            if eteam == team and _acc(e):
+                found.append((e, 'Fouled'))
+            i -= 1
+            continue
+
+        if eteam and eteam != team:
+            # When walking back from the shot, the attacking team has the ball
+            # at the shot. The chain ends only when the OPPONENT genuinely won /
+            # controlled the ball. We distinguish:
+            #
+            #  BREAK (real possession change by the opponent):
+            #   - completed opponent pass / successful take-on (they kept it)
+            #   - opponent shot (they attacked)
+            #   - Interception: the defender READ and stepped into a pass — a
+            #     deliberate possession win, i.e. a genuine turnover. (Validated:
+            #     Immobile's failed pass -> opp Interception -> rewin -> shot has
+            #     no SCA per FBref.)
+            #
+            #  TRANSPARENT (reactive touch that fell back to the attack — does
+            #  NOT reset shot creation, cf. a saved shot rebounding to a shot):
+            #   - Clearance / BlockedPass: ball forced at the defender under
+            #     pressure and dropped straight back to the attacking team.
+            #   - failed tackles, lost aerials, fleeting deflecting touches.
+            if et == 'Pass' and _acc(e):
+                break
+            if et == 'TakeOn' and _acc(e):
+                break
+            if et in ('Goal', 'SavedShot', 'MissedShots', 'ShotOnPost'):
+                break
+            if et == 'Interception':
+                break
+            # otherwise transparent — keep tracing back through it
+            i -= 1
+            continue
+
+        if eteam == team:
+            kind = _sca_kind(e)
+            if kind is not None:
+                found.append((e, kind))
+                if len(found) == 1 and kind == 'Shot':
+                    break
+                i -= 1
+                continue
+            if et in SCA_POSSESSION_START:
+                # A BallRecovery / loose-ball pickup is usually where the attack
+                # began (not itself a creating action). But it is transparent
+                # when the SAME team's ball-winning defensive action sits
+                # immediately before it: that tackle/interception is the real
+                # creating action (validated vs FBref: Pinamonti recovery <-
+                # Lauriente tackle = SCA1; Štulac take-on/recovery <- Štulac
+                # interception = SCA2). Peek one own-team step back.
+                if et in ('BallRecovery',):
+                    j = i - 1
+                    hops = 0
+                    while j >= 0 and hops < 3:
+                        prev = sorted_events[j]
+                        pteam = prev.get('teamId')
+                        if pteam == team:
+                            pk = _sca_kind(prev)
+                            if pk in ('Tackle', 'Interception'):
+                                found.append((prev, pk))
+                            break
+                        elif pteam and pteam != team:
+                            break
+                        j -= 1; hops += 1
+                break
+        i -= 1
+    return found
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -193,7 +359,7 @@ def _shot_row(event, match_id: int, names: dict) -> dict:
     is_goal    = etype == 'Goal'
     is_sot     = _is_sot(event)
     is_blocked = _is_blocked_shot(event)
-    is_off     = etype == 'MissedShots'
+    is_off     = etype in ('MissedShots', 'ShotOnPost')
     is_open    = _is_open_play(event)
 
     return {
@@ -360,6 +526,26 @@ def _aggregate(rows: list, match_id: int, team_id, player_id, player_name) -> di
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
+def _attach_sca_totals(stat, rows):
+    """Team-level SCA totals: count creating actions across the team's shots."""
+    kinds = defaultdict(int)
+    n_sca1 = n_sca2 = 0
+    for r in rows:
+        if r.get('sca_1_type'):
+            kinds[r['sca_1_type']] += 1; n_sca1 += 1
+        if r.get('sca_2_type'):
+            kinds[r['sca_2_type']] += 1; n_sca2 += 1
+    stat['sca_total']     = n_sca1 + n_sca2
+    stat['sca_pass_live'] = kinds.get('Pass (Live)', 0)
+    stat['sca_pass_dead'] = kinds.get('Pass (Dead)', 0)
+    stat['sca_take_on']   = kinds.get('Take-On', 0)
+    stat['sca_shot']      = kinds.get('Shot', 0)
+    stat['sca_fouled']    = kinds.get('Fouled', 0)
+    stat['sca_defense']   = kinds.get('Interception', 0) + kinds.get('Tackle', 0)
+    # shots with at least one creating action (the rest are unassisted/direct)
+    stat['shots_with_sca'] = sum(1 for r in rows if r.get('sca_1_type'))
+
+
 def parse_shooting(data: dict, whoscored_match_id: int) -> dict:
     """
     Parse all shooting stats from WhoScored matchCentreData.
@@ -386,12 +572,39 @@ def parse_shooting(data: dict, whoscored_match_id: int) -> dict:
     # Build per-shot rows
     shot_rows = [_shot_row(e, whoscored_match_id, names) for e in shot_events]
 
+    # ── Shot-creating actions (SCA) ─────────────────────────────────────────────
+    # Order: use WhoScored's delivered event order (the feed ships events
+    # already in chronological/sequence order). We deliberately do NOT re-sort
+    # by `eventId` (not unique within a match) or by `id` (authentic in clean
+    # feeds but scrambled in some archived/re-exported files, so unreliable as
+    # a universal key). Locate shots by object identity, never by id.
+    sorted_events = list(events)
+    # eventId is NOT unique in WhoScored data, so map by object identity.
+    pos_by_id = {id(e): i for i, e in enumerate(sorted_events)}
+    # Per-player SCA credit (a player earns SCA on OTHER players' shots too).
+    sca_credit = defaultdict(lambda: defaultdict(int))  # (team,pid) -> kind -> n
+    for e, row in zip(shot_events, shot_rows):
+        pos = pos_by_id.get(id(e))
+        sca = _resolve_sca(sorted_events, pos) if pos is not None else []
+        for slot, (sev, kind) in zip(('sca_1', 'sca_2'), sca):
+            spid = sev.get('playerId')
+            row[f'{slot}_player_id'] = spid
+            row[f'{slot}_player_name'] = names.get(str(spid))
+            row[f'{slot}_type'] = kind
+            if spid:
+                sca_credit[(e.get('teamId'), spid)][kind] += 1
+        for slot in ('sca_1', 'sca_2')[len(sca):]:
+            row[f'{slot}_player_id'] = None
+            row[f'{slot}_player_name'] = None
+            row[f'{slot}_type'] = None
+
     # ── Team-level ─────────────────────────────────────────────────────────────
     team_stats = []
     for team_id in (home_id, away_id):
         rows = [r for r in shot_rows if r['team_id'] == team_id]
         stat = _aggregate(rows, whoscored_match_id, team_id, None, None)
         if stat:
+            _attach_sca_totals(stat, rows)
             team_stats.append(stat)
 
     # ── Player-level ───────────────────────────────────────────────────────────
@@ -399,13 +612,31 @@ def parse_shooting(data: dict, whoscored_match_id: int) -> dict:
     for r in shot_rows:
         if r['player_id']:
             player_map[(r['team_id'], r['player_id'])].append(r)
+    # ensure players who only have SCA credit (no shots) still get a row
+    for key in sca_credit:
+        player_map.setdefault(key, [])
 
     player_stats = []
     for (team_id, player_id), rows in player_map.items():
         stat = _aggregate(rows, whoscored_match_id, team_id, player_id,
                           names.get(str(player_id)))
-        if stat:
-            player_stats.append(stat)
+        if stat is None:
+            # SCA-only player (no shots): build a minimal row
+            stat = {
+                'whoscored_match_id': whoscored_match_id,
+                'team_id': team_id, 'player_id': player_id,
+                'player_name': names.get(str(player_id)),
+                'shots': 0,
+            }
+        credit = sca_credit.get((team_id, player_id), {})
+        stat['sca'] = sum(credit.values())
+        stat['sca_pass_live'] = credit.get('Pass (Live)', 0)
+        stat['sca_pass_dead'] = credit.get('Pass (Dead)', 0)
+        stat['sca_take_on']   = credit.get('Take-On', 0)
+        stat['sca_shot']      = credit.get('Shot', 0)
+        stat['sca_fouled']    = credit.get('Fouled', 0)
+        stat['sca_defense']   = credit.get('Interception', 0) + credit.get('Tackle', 0)
+        player_stats.append(stat)
 
     return {
         'team':   team_stats,

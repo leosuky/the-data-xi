@@ -29,6 +29,21 @@ Accurate passes / possession minutes (= possession% × 90).
 Measures tempo of play — how many successful passes per minute of actual possession.
 Key predictor of goalscoring identified in possession research literature.
 
+BALL RETENTION %
+----------------
+Press-resistance / ball security: of all the touches a player (or team) took,
+what share did NOT end in losing the ball while in possession.
+
+    ball_losses        = dispossessed + dribbles_lost
+    ball_retention_pct = (touches - ball_losses) / touches * 100
+
+"Losses" here are on-ball losses only — being dispossessed under pressure and
+failed take-ons. Both are themselves touches (isTouch=True in WhoScored), so
+ball_losses <= touches and the percentage is always in [0, 100]. Misplaced
+passes are deliberately EXCLUDED: a pass is an intentional release of the ball,
+tracked (with its accuracy) in parse_passing. Join the two parsers if you want
+a full turnover model that also weighs giveaways from passing.
+
 TOUCH ZONES
 -----------
 Own third:    x ≤ 33.3
@@ -75,6 +90,29 @@ def _touch_zone(x: float) -> str:
 
 def _in_box(x: float, y: float) -> bool:
     return x > BOX_X_MIN and BOX_Y_MIN <= y <= BOX_Y_MAX
+
+def _pinit(player_acc: dict, tid: int, pid: int, names: dict) -> dict:
+    """Get-or-create a player accumulator entry (all counters zeroed).
+
+    Used by every per-player branch so dribbles/dispossessed accumulate safely
+    regardless of event order or whether a touch was seen first.
+    """
+    key = (tid, pid)
+    if key not in player_acc:
+        player_acc[key] = {
+            'team_id': tid, 'player_id': pid,
+            'player_name': names.get(str(pid)),
+            'touches': 0, 'touches_own_third': 0,
+            'touches_middle_third': 0, 'touches_final_third': 0,
+            'touches_in_box': 0, 'touch_x_sum': 0.0,
+            'dribbles_attempted': 0, 'dribbles_won': 0, 'dribbles_lost': 0,
+            'dribbles_own_third': 0, 'dribbles_middle_third': 0,
+            'dribbles_final_third': 0,
+            'dribbles_won_own_third': 0, 'dribbles_won_middle_third': 0,
+            'dribbles_won_final_third': 0,
+            'dispossessed': 0,
+        }
+    return player_acc[key]
 
 # Qualifier IDs excluded from base pass count (mirrors parse_passing baseline)
 # QID 2=Cross/CornerTaken, QID 107=ThrowIn, QID 123=KeeperThrow
@@ -132,6 +170,13 @@ def parse_possession(data: dict, whoscored_match_id: int) -> dict:
             'dribbles_offensive':    0,
             'dribbles_defensive':    0,
             'dribbles_overrun':      0,
+            # Dribbles by zone (attempted / won)
+            'dribbles_own_third':    0,
+            'dribbles_middle_third': 0,
+            'dribbles_final_third':  0,
+            'dribbles_won_own_third':    0,
+            'dribbles_won_middle_third': 0,
+            'dribbles_won_final_third':  0,
             # Retention
             'dispossessed':          0,
             'dispossessed_offensive':0,
@@ -165,18 +210,7 @@ def parse_possession(data: dict, whoscored_match_id: int) -> dict:
 
             # Player-level touch accumulation
             if pid:
-                key = (tid, pid)
-                if key not in player_acc:
-                    player_acc[key] = {
-                        'team_id': tid, 'player_id': pid,
-                        'player_name': names.get(str(pid)),
-                        'touches': 0, 'touches_own_third': 0,
-                        'touches_middle_third': 0, 'touches_final_third': 0,
-                        'touches_in_box': 0, 'touch_x_sum': 0.0,
-                        'dribbles_attempted': 0, 'dribbles_won': 0, 'dribbles_lost': 0,
-                            'dispossessed': 0,
-                    }
-                p = player_acc[key]
+                p = _pinit(player_acc, tid, pid, names)
                 p['touches']         += 1
                 p['touch_x_sum']     += x
                 p[f'touches_{zone}'] += 1
@@ -190,27 +224,34 @@ def parse_possession(data: dict, whoscored_match_id: int) -> dict:
             is_off  = _has_qid(e, 286)
             is_def  = _has_qid(e, 285)
             is_won  = _acc(e)
+            zone    = _touch_zone(x)
             t['dribbles_attempted'] += 1          # all TakeOns
+            t[f'dribbles_{zone}']   += 1
             if is_off:  t['dribbles_offensive'] += 1
             if is_def:  t['dribbles_defensive'] += 1
             if _has_qid(e, 211): t['dribbles_overrun'] += 1
             if is_won:
-                t['dribbles_won'] += 1
+                t['dribbles_won']             += 1
+                t[f'dribbles_won_{zone}']     += 1
             else:
                 t['dribbles_lost'] += 1
             if pid:
-                p = player_acc.get((tid, pid))
-                if p:
-                    p['dribbles_attempted'] = p.get('dribbles_attempted', 0) + 1
-                    p['dribbles_won']       = p.get('dribbles_won', 0) + (1 if is_won else 0)
+                p = _pinit(player_acc, tid, pid, names)
+                p['dribbles_attempted'] += 1
+                p[f'dribbles_{zone}']   += 1
+                if is_won:
+                    p['dribbles_won']         += 1
+                    p[f'dribbles_won_{zone}'] += 1
+                else:
+                    p['dribbles_lost']        += 1
 
         # ── Dispossessed ───────────────────────────────────────────────────────
         elif etype == 'Dispossessed':
             t['dispossessed'] += 1
             if _has_qid(e, 286): t['dispossessed_offensive'] += 1
             if _has_qid(e, 285): t['dispossessed_defensive'] += 1
-            if pid: player_acc.get((tid,pid), {})['dispossessed'] = \
-                player_acc.get((tid,pid), {}).get('dispossessed', 0) + 1
+            if pid:
+                _pinit(player_acc, tid, pid, names)['dispossessed'] += 1
 
         # ── Ball recovery — already in parse_defending, not repeated here ────
         # ── Shield ────────────────────────────────────────────────────────────
@@ -272,11 +313,26 @@ def parse_possession(data: dict, whoscored_match_id: int) -> dict:
             'dribbles_offensive':        t['dribbles_offensive'],
             'dribbles_defensive':        t['dribbles_defensive'],
             'dribbles_overrun':          t['dribbles_overrun'],
+            # Dribbles by zone (attempted / won / success pct)
+            'dribbles_own_third':        t['dribbles_own_third'],
+            'dribbles_middle_third':     t['dribbles_middle_third'],
+            'dribbles_final_third':      t['dribbles_final_third'],
+            'dribbles_won_own_third':    t['dribbles_won_own_third'],
+            'dribbles_won_middle_third': t['dribbles_won_middle_third'],
+            'dribbles_won_final_third':  t['dribbles_won_final_third'],
+            'dribble_success_pct_own_third':    (round(t['dribbles_won_own_third']    / t['dribbles_own_third']    * 100, 1) if t['dribbles_own_third']    else None),
+            'dribble_success_pct_middle_third': (round(t['dribbles_won_middle_third'] / t['dribbles_middle_third'] * 100, 1) if t['dribbles_middle_third'] else None),
+            'dribble_success_pct_final_third':  (round(t['dribbles_won_final_third']  / t['dribbles_final_third']  * 100, 1) if t['dribbles_final_third']  else None),
             # Retention
             'dispossessed':              t['dispossessed'],
             'dispossessed_offensive':    t['dispossessed_offensive'],
             'dispossessed_defensive':    t['dispossessed_defensive'],
             'shield_ball_opp':           t['shield_ball_opp'],
+            # Ball retention % = (touches - on-ball losses) / touches.
+            # On-ball losses = dispossessed + failed take-ons (see module docstring).
+            'ball_losses':               t['dispossessed'] + t['dribbles_lost'],
+            'ball_retention_pct':        (round((n_touch - (t['dispossessed'] + t['dribbles_lost'])) / n_touch * 100, 1)
+                                          if n_touch else None),
             # Passing rate (derived — raw counts are in parse_passing)
             'passing_rate':              passing_rate,  # acc base passes / possession minute
             # Corners
@@ -292,6 +348,9 @@ def parse_possession(data: dict, whoscored_match_id: int) -> dict:
         avg_x   = round(p['touch_x_sum'] / n_touch, 1) if n_touch else None
         d_att   = p['dribbles_attempted']
         d_pct   = round(p['dribbles_won'] / d_att * 100, 1) if d_att else None
+        def _zpct(z):
+            att = p[f'dribbles_{z}']
+            return round(p[f'dribbles_won_{z}'] / att * 100, 1) if att else None
         player_rows.append({
             'whoscored_match_id':     whoscored_match_id,
             'team_id':                p['team_id'],
@@ -305,9 +364,22 @@ def parse_possession(data: dict, whoscored_match_id: int) -> dict:
             'avg_touch_x':            avg_x,
             'dribbles_attempted':     d_att,
             'dribbles_won':           p['dribbles_won'],
-            'dribbles_lost':          p.get('dribbles_lost', d_att - p['dribbles_won']),
+            'dribbles_lost':          p['dribbles_lost'],
             'dribble_success_pct':    d_pct,
+            'dribbles_own_third':         p['dribbles_own_third'],
+            'dribbles_middle_third':      p['dribbles_middle_third'],
+            'dribbles_final_third':       p['dribbles_final_third'],
+            'dribbles_won_own_third':     p['dribbles_won_own_third'],
+            'dribbles_won_middle_third':  p['dribbles_won_middle_third'],
+            'dribbles_won_final_third':   p['dribbles_won_final_third'],
+            'dribble_success_pct_own_third':    _zpct('own_third'),
+            'dribble_success_pct_middle_third': _zpct('middle_third'),
+            'dribble_success_pct_final_third':  _zpct('final_third'),
             'dispossessed':           p['dispossessed'],
+            # Ball retention % — on-ball losses = dispossessed + failed take-ons
+            'ball_losses':            p['dispossessed'] + p['dribbles_lost'],
+            'ball_retention_pct':     (round((n_touch - (p['dispossessed'] + p['dribbles_lost'])) / n_touch * 100, 1)
+                                       if n_touch else None),
         })
 
     return {
