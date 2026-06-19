@@ -1,0 +1,31 @@
+/* trivial tier (team-grain): RAW already typed -> passthrough + uids. */
+select
+    s.whoscored_match_id,
+    s.combo_id,
+    s.team_id,
+    s.possession_pct,
+    s.possession_minutes,
+    s.touches_total,
+    s.touches_own_third,
+    s.touches_middle_third,
+    s.touches_final_third,
+    s.touches_in_box,
+    s.avg_touch_x,
+    s.dribbles_attempted,
+    s.dribbles_won,
+    s.dribbles_lost,
+    s.dribble_success_pct,
+    s.dribbles_offensive,
+    s.dribbles_defensive,
+    s.dribbles_overrun,
+    s.dispossessed,
+    s.dispossessed_offensive,
+    s.dispossessed_defensive,
+    s.shield_ball_opp,
+    s.passing_rate,
+    s.corners_won,
+    s.corners_miss_left,
+    s.corners_miss_right,
+    coalesce(tx.team_uid, s.team_id) as team_uid
+from {{ source('raw','ws_team_possession') }} s
+left join {{ ref('int_team_xwalk') }} tx on tx.ws_team_id = s.team_id

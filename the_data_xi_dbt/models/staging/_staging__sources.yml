@@ -1,0 +1,64 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: "Lossless provider data from the Airflow pipeline. TEXT-heavy by design; staging pays the type/format debt."
+    tables:
+      # WhoScored
+      - name: ws_avg_positions
+      - name: ws_context_events
+      - name: ws_formations
+      - name: ws_game_states
+      - name: ws_lineups
+      - name: ws_match_meta
+      - name: ws_pass_map
+      - name: ws_pass_network
+      - name: ws_player_defending
+      - name: ws_player_discipline
+      - name: ws_player_goalkeep
+      - name: ws_player_passing
+      - name: ws_player_passing_adv
+      - name: ws_player_possession
+      - name: ws_player_shooting
+      - name: ws_sequences
+      - name: ws_shots
+      - name: ws_team_defending
+      - name: ws_team_discipline
+      - name: ws_team_passing
+      - name: ws_team_passing_adv
+      - name: ws_team_poss_adv
+      - name: ws_team_possession
+      - name: ws_team_shooting
+      - name: ws_team_state_agg
+      - name: ws_team_states
+      # Sofascore
+      - name: sofa_lineups
+      - name: sofa_managers
+      - name: sofa_match_stats
+      - name: sofa_matches
+      - name: sofa_missing_players
+      - name: sofa_odds
+      - name: sofa_player_stats
+      - name: sofa_players
+      - name: sofa_referees
+      - name: sofa_seasons
+      - name: sofa_shots
+      - name: sofa_spatial
+      - name: sofa_teams
+      - name: sofa_tournaments
+      # Fotmob
+      - name: fot_lineups
+      - name: fot_match
+      - name: fot_player_stats
+      - name: fot_shots
+      - name: fot_spatial
+      - name: fot_team_stats
+      # Oddspedia
+      - name: oddsp_odds
+
+seeds:
+  - name: player_alias
+    description: "bad_ws_id -> canonical_ws_id. Empty by default."
+  - name: team_alias
+    description: "bad_ws_team_id -> canonical_ws_team_id."

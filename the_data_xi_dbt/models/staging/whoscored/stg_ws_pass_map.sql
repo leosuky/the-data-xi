@@ -1,0 +1,36 @@
+/* trivial tier (player-grain): RAW already typed -> passthrough + uids. */
+select
+    s.whoscored_match_id,
+    s.combo_id,
+    s.event_id,
+    s.player_id,
+    s.player_name,
+    s.team_id,
+    s.minute,
+    s.second,
+    s.expanded_minute,
+    s.period,
+    s.x,
+    s.y,
+    s.end_x,
+    s.end_y,
+    s.length,
+    s.accurate,
+    s.v_gain,
+    s.dist_to_goal_start,
+    s.dist_to_goal_end,
+    s.is_progressive,
+    s.is_final_third,
+    s.is_penalty_area,
+    s.is_switch,
+    s.is_open_play,
+    s.xt_start,
+    s.xt_end,
+    s.xt_added,
+    s.receiver_id,
+    s.receiver_name,
+    coalesce(px.player_uid, s.player_id) as player_uid,
+    coalesce(tx.team_uid, s.team_id) as team_uid
+from {{ source('raw','ws_pass_map') }} s
+left join {{ ref('int_player_xwalk') }} px on px.ws_player_id = s.player_id
+left join {{ ref('int_team_xwalk') }} tx on tx.ws_team_id = s.team_id
