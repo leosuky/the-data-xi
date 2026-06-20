@@ -33,14 +33,16 @@ models:
   the_data_xi_dbt:
     # Config indicated by + and applies to all files under models/staging/
     staging:
-      +materialized: incremental
+      +materialized: view          # staging = views → zero storage, no RAW duplication
       +schema: staging
-      +on_schema_change: sync_all_columns
+      crosswalks:
+        +materialized: table      # small; full-refresh each run so corrections propagate
     
-    intermediate:
-      +materialized: view
-      +schema: intermediate
-
     marts:
-      +materialized: incremental
       +schema: marts
+      dimensions:
+        +materialized: table        # small, full-refresh (SCD position updates ride this)
+      facts:
+        +materialized: table        # full-refresh; volumes are modest (<10M rows), reloads handled for free
+      aggregates:
+        +materialized: view         # season rollups recompute on read

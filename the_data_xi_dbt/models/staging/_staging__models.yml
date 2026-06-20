@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: int_player_xwalk
+    description: "ws-anchored player identity + resolved sofa/fot ids."
+    columns:
+      - name: player_uid
+        tests: [not_null]
+      - name: ws_player_id
+        tests: [not_null, unique]   # one row per ws player
+      - name: sofa_player_id
+        tests:
+          - unique:                  # no two ws players share a sofa id
+              config: {where: "sofa_player_id is not null"}
+  - name: int_team_xwalk
+    columns:
+      - name: team_uid
+        tests: [not_null]
+      - name: ws_team_id
+        tests: [not_null, unique]
+  - name: stg_ws_lineups
+    columns:
+      - name: player_uid
+        tests: [not_null]

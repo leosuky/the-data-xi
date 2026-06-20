@@ -1,0 +1,38 @@
+version: 2
+
+# Mart grain checks. severity=warn for the first validation run so a grain
+# surprise surfaces without halting; tighten to error once confirmed clean.
+models:
+  - name: dim_player
+    columns:
+      - name: player_uid
+        tests:
+          - not_null
+          - unique: {config: {severity: warn}}
+  - name: dim_team
+    columns:
+      - name: team_uid
+        tests:
+          - not_null
+          - unique: {config: {severity: warn}}
+  - name: dim_match
+    columns:
+      - name: combo_id
+        tests:
+          - not_null
+          - unique: {config: {severity: warn}}
+  - name: dim_coach
+    columns:
+      - name: coach_uid
+        tests:
+          - unique: {config: {severity: warn}}
+  - name: dim_referee
+    columns:
+      - name: referee_uid
+        tests:
+          - unique: {config: {severity: warn}}
+  - name: fct_shots
+    columns:
+      - name: shot_uid
+        tests:
+          - unique: {config: {severity: warn}}
