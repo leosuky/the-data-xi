@@ -1,11 +1,4 @@
-/* trivial tier (flat): RAW already typed -> passthrough + uids. */
+/* trivial tier (flat): 1:1 passthrough (introspected) + uids. */
 select
-    s.combo_id,
-    s.match_id,
-    s.average_positions,
-    s.commentary,
-    s.match_momentum_graph,
-    s.home_heatmap,
-    s.away_heatmap,
-    s.full_player_heatmaps
+    {{ passthrough_columns(source('raw','sofa_spatial'), 's', exclude=['id','ingested_at']) }}
 from {{ source('raw','sofa_spatial') }} s

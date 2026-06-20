@@ -1,6 +1,4 @@
-/* trivial tier (flat): RAW already typed -> passthrough + uids. */
+/* trivial tier (flat): 1:1 passthrough (introspected) + uids. */
 select
-    s.fotmob_id,
-    s.combo_id,
-    s.momentum_data
+    {{ passthrough_columns(source('raw','fot_spatial'), 's', exclude=['id','ingested_at']) }}
 from {{ source('raw','fot_spatial') }} s

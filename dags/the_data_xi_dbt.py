@@ -4,7 +4,14 @@ the_data_xi_dbt.py
 dbt transformation DAG for The Data XI v2.
 
 Triggered by the_data_xi_load after all matches are loaded.
-Runs dbt in three stages: staging → intermediate → marts.
+Runs: setup (deps + seed) -> staging -> intermediate -> marts.
+
+Note on layers:
+  * The identity crosswalks (int_player_xwalk / int_team_xwalk) live under
+    models/staging/crosswalks/, so they build in the STAGING stage - the stg_*
+    views ref() them and must not run before them. The 'intermediate' stage is
+    a placeholder until mart-supporting int_* models exist; an empty selection
+    is a harmless no-op (dbt exits 0).
 """
 
 from airflow.decorators import dag, task
@@ -36,7 +43,7 @@ def _run_dbt(command: str, label: str):
 
 @dag(
     dag_id='the_data_xi_dbt',
-    description='Run dbt staging → intermediate → marts transformations',
+    description='Run dbt setup -> staging -> intermediate -> marts transformations',
     start_date=datetime(2025, 1, 1),
     schedule=None,
     catchup=False,
@@ -45,22 +52,32 @@ def _run_dbt(command: str, label: str):
 )
 def the_data_xi_dbt():
 
+    @task(task_id='dbt_setup')
+    def run_setup():
+        # deps: rebuild vendored packages (dbt_packages/ is gitignored, absent on fresh workers)
+        _run_dbt('dbt deps', 'dbt deps')
+        # seed: load the alias override tables the crosswalks ref(). Idempotent.
+        # WITHOUT this, int_player_xwalk/int_team_xwalk fail: relation does not exist.
+        _run_dbt('dbt seed', 'dbt seed')
+
     @task(task_id='dbt_staging')
     def run_staging():
-        _run_dbt('dbt run --select staging', 'dbt staging run')
+        # builds crosswalks + all stg_* views (dbt orders by ref DAG), then tests.
+        _run_dbt('dbt run  --select staging', 'dbt staging run')
         _run_dbt('dbt test --select staging', 'dbt staging test')
 
     @task(task_id='dbt_intermediate')
     def run_intermediate():
-        _run_dbt('dbt run --select intermediate', 'dbt intermediate run')
+        # no-op until mart-supporting int_* models exist (empty selection exits 0).
+        _run_dbt('dbt run  --select intermediate', 'dbt intermediate run')
         _run_dbt('dbt test --select intermediate', 'dbt intermediate test')
 
     @task(task_id='dbt_marts')
     def run_marts():
-        _run_dbt('dbt run --select marts', 'dbt marts run')
+        _run_dbt('dbt run  --select marts', 'dbt marts run')
         _run_dbt('dbt test --select marts', 'dbt marts test')
 
-    run_staging() >> run_intermediate() >> run_marts()
+    run_setup() >> run_staging() >> run_intermediate() >> run_marts()
 
 
 the_data_xi_dbt()

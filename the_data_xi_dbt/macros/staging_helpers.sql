@@ -43,3 +43,38 @@
     {%- endfor -%}
     {{ out | join(',\n    ') }}
 {%- endmacro %}
+
+{# 1:1 passthrough: introspect the LIVE relation and emit every column
+   (alias-qualified), minus `exclude`. Robust to auto-ALTER columns added at
+   load time - a hardcoded column list silently drops those. #}
+{% macro passthrough_columns(relation, alias, exclude=[]) -%}
+    {%- set cols = adapter.get_columns_in_relation(relation) -%}
+    {%- set out = [] -%}
+    {%- for c in cols -%}
+        {%- if c.name not in exclude -%}
+            {%- do out.append(alias ~ '."' ~ c.name ~ '"') -%}
+        {%- endif -%}
+    {%- endfor -%}
+    {{ out | join(',\n    ') }}
+{%- endmacro %}
+
+{# Dynamic long->wide pivot. Reads the distinct key values at compile time and
+   emits one MAX(CASE ...) column each. value_col is cast to value_cast. #}
+{% macro pivot_long_to_wide(relation, group_by, key_col, value_col, value_cast='numeric') -%}
+    {%- if execute -%}
+        {%- set keys = run_query('select distinct ' ~ key_col ~ ' from ' ~ relation ~
+                                 ' where ' ~ key_col ~ ' is not null order by 1').columns[0].values() -%}
+    {%- else -%}
+        {%- set keys = [] -%}
+    {%- endif -%}
+    {%- set sel = [] -%}
+    {%- for g in group_by -%}{%- do sel.append(g) -%}{%- endfor -%}
+    {%- for k in keys -%}
+        {%- set colname = k | lower | replace('.', '_') | replace(' ', '_') | replace('-', '_') | replace('+', 'plus') -%}
+        {%- do sel.append("max(case when " ~ key_col ~ " = '" ~ k ~ "' then " ~ value_col ~ "::" ~ value_cast ~ " end) as \"" ~ colname ~ "\"") -%}
+    {%- endfor -%}
+    select
+    {{ sel | join(',\n    ') }}
+    from {{ relation }}
+    group by {{ group_by | join(', ') }}
+{%- endmacro %}

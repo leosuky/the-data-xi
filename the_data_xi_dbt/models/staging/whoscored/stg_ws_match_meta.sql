@@ -1,15 +1,4 @@
-/* trivial tier (flat): RAW already typed -> passthrough + uids. */
+/* trivial tier (flat): 1:1 passthrough (introspected) + uids. */
 select
-    s.whoscored_match_id,
-    s.combo_id,
-    s.home_team,
-    s.home_team_id,
-    s.away_team,
-    s.away_team_id,
-    s.score,
-    s.ht_score,
-    s.venue,
-    s.attendance,
-    s.referee,
-    s.start_time
+    {{ passthrough_columns(source('raw','ws_match_meta'), 's', exclude=['id','ingested_at']) }}
 from {{ source('raw','ws_match_meta') }} s

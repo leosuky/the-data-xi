@@ -1,24 +1,6 @@
-/* trivial tier (player-grain): RAW already typed -> passthrough + uids. */
+/* trivial tier (player-grain): 1:1 passthrough (introspected) + uids. */
 select
-    s.combo_id,
-    s.whoscored_match_id,
-    s.team_id,
-    s.state_id,
-    s.score_diff_at,
-    s.man_state_at,
-    s.period,
-    s.minute,
-    s.second,
-    s.minute_display,
-    s.time_s,
-    s.event_type,
-    s.player_id,
-    s.player_name,
-    s.player_in_id,
-    s.player_in_name,
-    s.player_out_id,
-    s.player_out_name,
-    s.detail,
+    {{ passthrough_columns(source('raw','ws_context_events'), 's', exclude=['id','ingested_at']) }},
     coalesce(px.player_uid, s.player_id) as player_uid,
     coalesce(tx.team_uid, s.team_id) as team_uid
 from {{ source('raw','ws_context_events') }} s

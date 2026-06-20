@@ -1,24 +1,6 @@
-/* trivial tier (player-grain): RAW already typed -> passthrough + uids. */
+/* trivial tier (player-grain): 1:1 passthrough (introspected) + uids. */
 select
-    s.fotmob_id,
-    s.combo_id,
-    s.player_id,
-    s.player_name,
-    s.team_id,
-    s.team_name,
-    s.is_home_team,
-    s.role,
-    s.shirt_number,
-    s.position_id,
-    s.position,
-    s.usual_position_id,
-    s.usual_position,
-    s.is_captain,
-    s.age,
-    s.country,
-    s.country_code,
-    s.rating,
-    s.formation,
+    {{ passthrough_columns(source('raw','fot_lineups'), 's', exclude=['id','ingested_at']) }},
     px.player_uid,
     tx.team_uid
 from {{ source('raw','fot_lineups') }} s

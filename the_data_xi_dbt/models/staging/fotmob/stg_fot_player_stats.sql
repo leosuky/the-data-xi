@@ -1,6 +1,7 @@
-/* dynamic per-row stats: season-varying TEXT cols cast via introspection. */
+/* dynamic per-row stats: season-varying numeric-TEXT cols cast via introspection;
+   base text labels preserved via keep_text. */
 select
-    {{ cast_text_numeric(source('raw','fot_player_stats'), keep_text=['combo_id','player_id','team_id']) }},
+    {{ cast_text_numeric(source('raw','fot_player_stats'), keep_text=['combo_id', 'player_name', 'team_name']) }},
     px.player_uid,
     tx.team_uid
 from {{ source('raw','fot_player_stats') }} s

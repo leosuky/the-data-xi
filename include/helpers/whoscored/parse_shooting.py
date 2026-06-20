@@ -625,8 +625,7 @@ def parse_shooting(data: dict, whoscored_match_id: int) -> dict:
             stat = {
                 'whoscored_match_id': whoscored_match_id,
                 'team_id': team_id, 'player_id': player_id,
-                'player_name': names.get(str(player_id)),
-                'shots': 0,
+                'player_name': names.get(str(player_id))
             }
         credit = sca_credit.get((team_id, player_id), {})
         stat['sca'] = sum(credit.values())

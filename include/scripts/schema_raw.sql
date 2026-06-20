@@ -629,8 +629,6 @@ CREATE TABLE IF NOT EXISTS ws_team_shooting (
     combo_id                TEXT NOT NULL,
     whoscored_match_id      INTEGER,
     team_id                 INTEGER,
-    player_id               INTEGER,
-    player_name             TEXT,
     total_shots             INTEGER,
     goals                   INTEGER,
     shots_on_target         INTEGER,
@@ -722,7 +720,6 @@ CREATE TABLE IF NOT EXISTS ws_player_shooting (
     sca_shot                INTEGER,
     sca_fouled              INTEGER,
     sca_defense             INTEGER,
-    shots                   INTEGER,
     UNIQUE (combo_id, player_id)
 );
 
@@ -1280,8 +1277,7 @@ CREATE TABLE IF NOT EXISTS sofa_player_stats (
     match_id                INTEGER,
     team_id                 INTEGER,
     is_home_team            BOOLEAN,
-    player_id               INTEGER,
-    position                TEXT
+    player_id               INTEGER
     -- 40+ per-match stat columns (match_rating, totalpass, accuratepass,
     -- expectedgoals, totaltackle, saves, …) auto-added as TEXT by loader.
 );
@@ -1325,9 +1321,9 @@ CREATE TABLE IF NOT EXISTS sofa_odds (
     id                      BIGSERIAL PRIMARY KEY,
     combo_id                TEXT NOT NULL,
     match_id                INTEGER,
-    selection               TEXT,
-    odds_value              TEXT,
     ingested_at             TEXT
+    -- WIDE: one column per {period}_{market}_{selection} (+ _winning labels),
+    -- auto-added at load (like sofa_match_stats / fot_team_stats).
 );
 
 CREATE TABLE IF NOT EXISTS sofa_spatial (

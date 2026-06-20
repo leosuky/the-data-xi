@@ -88,39 +88,6 @@ def _push_table(cur, table, rows, conflict_cols, schema, combo_id,
 # SOFASCORE RESHAPE HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
-# read_json_data.py emits Sofascore odds WIDE; we store it long. This helper
-# reshapes the wide odds frame into long rows. (sofa_match_stats and
-# fot_team_stats are kept WIDE — see their loaders.)
-
-_ODDS_SKIP = {'match_id', 'combo_id', 'ingested_at'}
-
-
-def _melt_sofa_odds_long(df, combo_id):
-    """
-    Reshape wide Sofascore odds (one column per selection) into long rows:
-    one row per non-null selection. Lossless and robust — the full selection
-    label is kept verbatim (oddsp_odds remains the decomposed primary source).
-    """
-    if df is None or not hasattr(df, 'to_dict') or len(df) == 0:
-        return []
-
-    out = []
-    for rec in df.to_dict('records'):
-        mid = rec.get('match_id')
-        ing = rec.get('ingested_at')
-        for col, val in rec.items():
-            if col in _ODDS_SKIP or val is None:
-                continue
-            out.append({
-                'combo_id':    combo_id,
-                'match_id':    mid,
-                'selection':   col,
-                'odds_value':  str(val),
-                'ingested_at': ing,
-            })
-    return out
-
-
 # read_json_data.py emits the provider-native primary key as `id`, which would
 # collide with the BIGSERIAL surrogate `id`. Remap it to the natural key column.
 _SOFA_ID_REMAP = {
@@ -465,11 +432,11 @@ def _load_sofascore(cur, sf_dir, combo_id, schema):
 
     if odds_path:
         try:
+            # Wide format: one row per match, one column per
+            # {period}_{market}_{selection} (+ _winning label cols). Columns
+            # auto-added at load, like sofa_match_stats / fot_team_stats.
             df_tables['sofa_odds'] = (
-                _melt_sofa_odds_long(
-                    rd_json.odds_table(odds_path, combo_id, match_id),
-                    combo_id,
-                ),
+                rd_json.odds_table(odds_path, combo_id, match_id),
                 []
             )
         except Exception:

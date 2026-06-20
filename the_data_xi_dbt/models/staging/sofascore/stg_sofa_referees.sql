@@ -1,10 +1,4 @@
-/* trivial tier (flat): RAW already typed -> passthrough + uids. */
+/* trivial tier (flat): 1:1 passthrough (introspected) + uids. */
 select
-    s.referee_id,
-    s.name,
-    s.nationality,
-    s.red_cards,
-    s.yellow_cards,
-    s.double_yellow_cards,
-    s.games
+    {{ passthrough_columns(source('raw','sofa_referees'), 's', exclude=['id','ingested_at']) }}
 from {{ source('raw','sofa_referees') }} s

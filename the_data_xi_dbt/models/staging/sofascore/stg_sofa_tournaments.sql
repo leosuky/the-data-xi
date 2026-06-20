@@ -1,7 +1,4 @@
-/* trivial tier (flat): RAW already typed -> passthrough + uids. */
+/* trivial tier (flat): 1:1 passthrough (introspected) + uids. */
 select
-    s.tournament_id,
-    s.name,
-    s.country,
-    s.tier
+    {{ passthrough_columns(source('raw','sofa_tournaments'), 's', exclude=['id','ingested_at']) }}
 from {{ source('raw','sofa_tournaments') }} s

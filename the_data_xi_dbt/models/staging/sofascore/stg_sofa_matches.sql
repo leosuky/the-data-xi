@@ -1,23 +1,4 @@
-/* trivial tier (flat): RAW already typed -> passthrough + uids. */
+/* trivial tier (flat): 1:1 passthrough (introspected) + uids. */
 select
-    s.combo_id,
-    s.match_id,
-    s.tournament_id,
-    s.season_id,
-    s.venue,
-    s.referee_id,
-    s.home_team_id,
-    s.away_team_id,
-    s.home_manager_id,
-    s.away_manager_id,
-    s.home_formation,
-    s.away_formation,
-    s.attendance,
-    s.winnercode,
-    s.starttimestamp,
-    s.motm_rating,
-    s.motm_player_name,
-    s.motm_player_id,
-    s.has_shotmap,
-    s.has_xg
+    {{ passthrough_columns(source('raw','sofa_matches'), 's', exclude=['id','ingested_at']) }}
 from {{ source('raw','sofa_matches') }} s
