@@ -78,3 +78,16 @@
     from {{ relation }}
     group by {{ group_by | join(', ') }}
 {%- endmacro %}
+
+{# Emit only the columns of `rel` that are NOT already in `base_rel`
+   (alias-qualified). For base+advanced fact joins, so b.* plus the advanced
+   table's unique columns never collide. Assumes rel has >=1 unique column. #}
+{% macro select_new_columns(rel, base_rel, alias) -%}
+    {%- set rel_cols  = adapter.get_columns_in_relation(rel)      | map(attribute='name') | list -%}
+    {%- set base_cols = adapter.get_columns_in_relation(base_rel) | map(attribute='name') | list -%}
+    {%- set out = [] -%}
+    {%- for c in rel_cols if c not in base_cols -%}
+        {%- do out.append(alias ~ '."' ~ c ~ '"') -%}
+    {%- endfor -%}
+    {{ out | join(',\n    ') }}
+{%- endmacro %}

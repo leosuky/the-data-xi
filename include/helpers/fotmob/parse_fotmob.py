@@ -481,6 +481,17 @@ def _parse_shots(data: dict, fotmob_id: int, combo_id: str) -> list[dict]:
             'on_goal_shot':       str(s.get('onGoalShot')) if s.get('onGoalShot') else None,
         })
 
+    # Chronological row_id, 0-indexed to match the Sofascore/WhoScored scheme so
+    # (combo_id, row_id) is the shared shot key across all three providers. Sort
+    # by absolute match minute (Python's sort is stable, so same-minute shots keep
+    # Fotmob's native array order as the tiebreak).
+    rows.sort(key=lambda r: (
+        r['minute'] if r['minute'] is not None else 0,
+        r['minute_added'] if r['minute_added'] is not None else 0,
+    ))
+    for _i, _r in enumerate(rows):
+        _r['row_id'] = _i
+
     return rows
 
 

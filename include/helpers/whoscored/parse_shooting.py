@@ -572,6 +572,12 @@ def parse_shooting(data: dict, whoscored_match_id: int) -> dict:
     # Build per-shot rows
     shot_rows = [_shot_row(e, whoscored_match_id, names) for e in shot_events]
 
+    # Chronological row_id (the WhoScored feed ships events in chronological order,
+    # see the SCA note below). 0-indexed to match the Sofascore scheme, so
+    # (combo_id, row_id) is the shared shot key across all three providers.
+    for _i, _r in enumerate(shot_rows):
+        _r['row_id'] = _i
+
     # ── Shot-creating actions (SCA) ─────────────────────────────────────────────
     # Order: use WhoScored's delivered event order (the feed ships events
     # already in chronological/sequence order). We deliberately do NOT re-sort
@@ -625,7 +631,7 @@ def parse_shooting(data: dict, whoscored_match_id: int) -> dict:
             stat = {
                 'whoscored_match_id': whoscored_match_id,
                 'team_id': team_id, 'player_id': player_id,
-                'player_name': names.get(str(player_id))
+                'player_name': names.get(str(player_id)),
             }
         credit = sca_credit.get((team_id, player_id), {})
         stat['sca'] = sum(credit.values())

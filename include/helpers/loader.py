@@ -56,11 +56,14 @@ def _extract_id_from_filename(path, pattern):
 # ── Generic table pusher ──────────────────────────────────────────────────────
 
 def _push_table(cur, table, rows, conflict_cols, schema, combo_id,
-                delete_first=False):
+                delete_first=False, update_where=None):
     """
     Push a list of row dicts to a RAW table.
     Wrapped in a SAVEPOINT so a single table failure doesn't
     abort the entire provider transaction.
+
+    update_where: optional conditional-update predicate forwarded to upsert()
+    (e.g. the sofa_referees cumulative-stats guard).
     """
     if not rows:
         return 0
@@ -74,7 +77,7 @@ def _push_table(cur, table, rows, conflict_cols, schema, combo_id,
             )
 
         for row in rows:
-            upsert(cur, table, row, conflict_cols, schema)
+            upsert(cur, table, row, conflict_cols, schema, update_where=update_where)
 
         cur.execute(f'RELEASE SAVEPOINT before_{table}')
         return len(rows)
@@ -96,6 +99,16 @@ _SOFA_ID_REMAP = {
     'sofa_referees': 'referee_id',
     'sofa_managers': 'manager_id',
     'sofa_shots':    'shot_id',
+}
+
+
+# Per-table conditional-update guards. Sofascore ships CUMULATIVE career referee
+# stats in every match JSON, so games/cards grow over time. Without this guard an
+# out-of-order (or re-)load could overwrite a newer, more-complete referee record
+# with an older one. Only overwrite when the incoming row has more games.
+_SOFA_UPDATE_WHERE = {
+    'sofa_referees':
+        'sofa_referees.games IS NULL OR EXCLUDED.games > sofa_referees.games',
 }
 
 
@@ -500,7 +513,8 @@ def _load_sofascore(cur, sf_dir, combo_id, schema):
             # are delete-by-combo then re-insert for idempotency.
             delete_first = (conflict_cols == [])
             total += _push_table(cur, table_name, rows, conflict_cols, schema,
-                                 combo_id, delete_first=delete_first)
+                                 combo_id, delete_first=delete_first,
+                                 update_where=_SOFA_UPDATE_WHERE.get(table_name))
         except Exception as e:
             log.error(f'  Sofascore {table_name} push failed: {e}')
 

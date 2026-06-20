@@ -99,6 +99,7 @@ def upsert(
     conflict_cols: list[str],
     schema: str = 'raw',
     allow_alter: bool = True,
+    update_where: Optional[str] = None,
 ):
     """
     Insert a single row, handling conflicts via ON CONFLICT DO UPDATE.
@@ -122,6 +123,13 @@ def upsert(
                         If empty, performs a plain INSERT (no conflict clause).
         schema:         Postgres schema name.
         allow_alter:    If True, auto-add unknown columns instead of stripping.
+        update_where:   Optional SQL predicate appended as a WHERE clause to the
+                        ON CONFLICT DO UPDATE. Use to make an update conditional —
+                        e.g. sofa_referees ships cumulative career stats, so we
+                        only overwrite when the incoming row is more complete:
+                        ``update_where="sofa_referees.games IS NULL OR
+                        EXCLUDED.games > sofa_referees.games"``. Ignored when there
+                        are no non-conflict columns to update.
     """
     if not row:
         return
@@ -188,10 +196,16 @@ def upsert(
     updates = ', '.join(
         f'"{c}" = EXCLUDED."{c}"' for c in cols if c not in conflict_cols
     )
+    if updates:
+        do_clause = f'UPDATE SET {updates}'
+        if update_where:
+            # Conditional update — only overwrite when the predicate holds.
+            do_clause += f' WHERE {update_where}'
+    else:
+        do_clause = 'NOTHING'
     cur.execute(
         f'INSERT INTO {qualified_table} ({col_list}) VALUES ({placeholders}) '
-        f'ON CONFLICT ({conflict}) DO '
-        + (f'UPDATE SET {updates}' if updates else 'NOTHING'),
+        f'ON CONFLICT ({conflict}) DO ' + do_clause,
         vals,
     )
 
@@ -202,6 +216,7 @@ def upsert_many(
     rows: list[dict],
     conflict_cols: list[str],
     schema: str = 'raw',
+    update_where: Optional[str] = None,
 ):
     """
     Upsert multiple rows. Convenience wrapper around upsert().
@@ -212,9 +227,10 @@ def upsert_many(
         rows:           List of dicts (one per row)
         conflict_cols:  Conflict columns for ON CONFLICT
         schema:         Postgres schema name
+        update_where:   Optional conditional-update predicate (see upsert()).
     """
     for row in rows:
-        upsert(cur, table, row, conflict_cols, schema)
+        upsert(cur, table, row, conflict_cols, schema, update_where=update_where)
 
 
 def delete_match_rows(cur, table: str, match_id: int, schema: str = 'raw'):
