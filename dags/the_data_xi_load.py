@@ -26,7 +26,7 @@ from include.helpers.loader import load_match
 
 log = logging.getLogger(__name__)
 
-FIXTURES_DIR    = '/usr/local/airflow/data/fixtures'
+FIXTURES_DIR    = '/usr/local/airflow/data/EPL/2018_2019'
 POSTGRES_CONN   = 'the_data_xi_postgres'
 TARGET_SCHEMA   = 'raw'
 
@@ -41,7 +41,7 @@ TARGET_SCHEMA   = 'raw'
     tags=['the_data_xi', 'etl', 'football', 'v2'],
     params={
         'force_reload': Param(
-            True,
+            False,
             type='boolean',
             title='Force reload',
             description=(
@@ -78,6 +78,14 @@ def the_data_xi_load():
         finally:
             conn.close()
         log.info(f'Discovered {len(matches)} matches to load (force_reload={force_reload})')
+        ws_absent = [m['combo_id'] for m in matches if not m.get('ws_valid', True)]
+        if ws_absent:
+            log.warning(
+                f'{len(ws_absent)} of {len(matches)} matches are WhoScored-absent '
+                f'and will load other providers only — query '
+                f'`{TARGET_SCHEMA}.ws_match_meta WHERE NOT has_ws_events` after the '
+                f'run for the full list. Affected: {ws_absent}'
+            )
         if not matches:
             log.warning(
                 'No matches to load — load_single_match will be SKIPPED (empty '

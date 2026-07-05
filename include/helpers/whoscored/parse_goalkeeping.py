@@ -150,9 +150,22 @@ def parse_goalkeeping(data: dict, whoscored_match_id: int) -> dict:
 
         # ── Filter events ─────────────────────────────────────────────────────
         gk_evs     = [e for e in events if e.get('playerId') == gk_id]
-        opp_goals  = [e for e in events
-                      if e.get('teamId') == opp_id
-                      and e['type']['displayName'] == 'Goal']
+
+        # Goals CONCEDED = ball entered THIS keeper's net. Two cases only:
+        #   * opponent's genuine (non-own) goals, and
+        #   * own goals by the keeper's OWN team (a team-mate puts it past him).
+        # Opponent OWN goals go into the OPPONENT's net — they are goals FOR this
+        # team and are NEVER conceded — but WhoScored files every goal under the
+        # SCORER's teamId, so a naive teamId==opp_id filter double-counts them
+        # (e.g. 2 Burnley own goals turned Donnarumma's 1-goal game into 3).
+        # Only genuine opponent goals are "shots the keeper faced"; own-team OGs
+        # are conceded but not shots faced, so they feed goals_conceded but NOT
+        # shots_on_target_faced / save%.
+        goal_evs          = [e for e in events if e['type']['displayName'] == 'Goal']
+        genuine_opp_goals = sum(1 for e in goal_evs
+                                if e.get('teamId') == opp_id  and not _has(e, 'OwnGoal'))
+        own_team_ogs      = sum(1 for e in goal_evs
+                                if e.get('teamId') == team_id and _has(e, 'OwnGoal'))
 
         saves      = [e for e in gk_evs if e['type']['displayName'] == 'Save']
         pickups    = [e for e in gk_evs if e['type']['displayName'] == 'KeeperPickup']
@@ -169,7 +182,8 @@ def parse_goalkeeping(data: dict, whoscored_match_id: int) -> dict:
         # save events including FromShotOffTarget, as they track keeper technique.
         saves_proper    = [s for s in saves if not _has(s, 'FromShotOffTarget')]
         n_saves         = len(saves_proper)
-        n_goals         = len(opp_goals)
+        n_goals         = genuine_opp_goals                 # on-target shots faced that scored
+        goals_conceded  = genuine_opp_goals + own_team_ogs  # true total conceded (incl own-team OGs)
         sot_faced       = n_saves + n_goals
         save_pct        = round(n_saves / sot_faced * 100, 2) if sot_faced else None
 
@@ -260,7 +274,7 @@ def parse_goalkeeping(data: dict, whoscored_match_id: int) -> dict:
             'player_name':                gk_name,
             # 1. Shot stopping
             'saves':                      n_saves,
-            'goals_conceded':             n_goals,
+            'goals_conceded':             goals_conceded,
             'shots_on_target_faced':      sot_faced,
             'save_pct':                   save_pct,
             'saves_standing':             standing,

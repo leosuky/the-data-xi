@@ -311,6 +311,32 @@ CREATE TABLE IF NOT EXISTS ws_team_possession (
     UNIQUE (combo_id, team_id)
 );
 
+CREATE TABLE IF NOT EXISTS ws_player_carries (
+    id                          BIGSERIAL PRIMARY KEY,
+    whoscored_match_id          INTEGER NOT NULL,
+    combo_id                    TEXT NOT NULL,
+    team_id                     INTEGER,
+    player_id                   INTEGER NOT NULL,
+    player_name                 TEXT,
+    carries                     INTEGER,
+    carry_distance_m            NUMERIC(7,1),
+    progressive_carries         INTEGER,
+    carry_final_third_entries   INTEGER,
+    UNIQUE (combo_id, player_id)
+);
+
+CREATE TABLE IF NOT EXISTS ws_team_carries (
+    id                          BIGSERIAL PRIMARY KEY,
+    whoscored_match_id          INTEGER NOT NULL,
+    combo_id                    TEXT NOT NULL,
+    team_id                     INTEGER NOT NULL,
+    carries                     INTEGER,
+    carry_distance_m            NUMERIC(8,1),
+    progressive_carries         INTEGER,
+    carry_final_third_entries   INTEGER,
+    UNIQUE (combo_id, team_id)
+);
+
 -- ── Team-level advanced possession ───────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS ws_team_poss_adv (
@@ -1321,9 +1347,9 @@ CREATE TABLE IF NOT EXISTS sofa_odds (
     id                      BIGSERIAL PRIMARY KEY,
     combo_id                TEXT NOT NULL,
     match_id                INTEGER,
+    selection               TEXT,
+    odds_value              TEXT,
     ingested_at             TEXT
-    -- WIDE: one column per {period}_{market}_{selection} (+ _winning labels),
-    -- auto-added at load (like sofa_match_stats / fot_team_stats).
 );
 
 CREATE TABLE IF NOT EXISTS sofa_spatial (

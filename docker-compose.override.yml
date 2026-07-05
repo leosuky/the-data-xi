@@ -6,21 +6,37 @@ services:
     volumes:
       - C:/Users/Leosuky/.dbt:/home/astro/.dbt
       - ./the_data_xi_dbt:/usr/local/airflow/the_data_xi_dbt
-      - ./data:/usr/local/airflow/data
+      # - ./data:/usr/local/airflow/data
+      - D:/Consolidated_fixtures/data:/usr/local/airflow/data
     entrypoint: ["./init.sh"]
     command: ["airflow", "api-server"]
 
   scheduler:
     networks:
       - the_data_xi_net
+    volumes:
+      - C:/Users/Leosuky/.dbt:/home/astro/.dbt
+      - ./the_data_xi_dbt:/usr/local/airflow/the_data_xi_dbt
+      # - ./data:/usr/local/airflow/data
+      - D:/Consolidated_fixtures/data:/usr/local/airflow/data
 
   triggerer:
     networks:
       - the_data_xi_net
+    volumes:
+      - C:/Users/Leosuky/.dbt:/home/astro/.dbt
+      - ./the_data_xi_dbt:/usr/local/airflow/the_data_xi_dbt
+      # - ./data:/usr/local/airflow/data
+      - D:/Consolidated_fixtures/data:/usr/local/airflow/data
 
   dag-processor:
     networks:
       - the_data_xi_net
+    volumes:
+      - C:/Users/Leosuky/.dbt:/home/astro/.dbt
+      - ./the_data_xi_dbt:/usr/local/airflow/the_data_xi_dbt
+      # - ./data:/usr/local/airflow/data
+      - D:/Consolidated_fixtures/data:/usr/local/airflow/data
 
   db-migration:
     networks:
@@ -43,6 +59,7 @@ services:
 
   postgres_data_xi:
     image: postgres:17
+    shm_size: 1gb
     container_name: the_data_xi_postgres 
     restart: always 
     environment:                   
@@ -52,7 +69,7 @@ services:
     ports:
       - "127.0.0.1:4500:5432"                  
     volumes:
-      - the_data_xi_postgres:/var/lib/postgresql_the_data_xi/data
+      - the_data_xi_postgres:/var/lib/postgresql/data
     networks:
       - the_data_xi_net
       

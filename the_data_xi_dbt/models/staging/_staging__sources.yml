@@ -7,6 +7,8 @@ sources:
     tables:
       # WhoScored
       - name: ws_avg_positions
+      - name: ws_player_carries
+      - name: ws_team_carries
       - name: ws_context_events
       - name: ws_formations
       - name: ws_game_states

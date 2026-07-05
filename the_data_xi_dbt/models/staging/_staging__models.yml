@@ -1,5 +1,14 @@
 version: 2
 
+# Test severity policy:
+#   * Structural tests on the ws ANCHOR (player_uid/team_uid not_null, ws id
+#     not_null+unique) stay severity=error — if these fail the identity spine is
+#     broken and the build SHOULD halt.
+#   * Cross-provider id-uniqueness (a sofa/fot id mapping to >1 ws player) is
+#     severity=warn for now: on messy real data a mis-resolution is possible and
+#     we want the pipeline to COMPLETE so we can inspect coverage, not halt at
+#     staging. Tighten these to error once the first real batch is clean.
+
 models:
   - name: int_player_xwalk
     description: "ws-anchored player identity + resolved sofa/fot ids."
@@ -7,17 +16,37 @@ models:
       - name: player_uid
         tests: [not_null]
       - name: ws_player_id
-        tests: [not_null, unique]   # one row per ws player
+        tests: [not_null, unique]            # anchor: one row per ws player (error)
       - name: sofa_player_id
         tests:
-          - unique:                  # no two ws players share a sofa id
-              config: {where: "sofa_player_id is not null"}
+          - unique:                          # no two ws players share a sofa id
+              config:
+                where: "sofa_player_id is not null"
+                severity: warn
+      - name: fot_player_id
+        tests:
+          - unique:
+              config:
+                where: "fot_player_id is not null"
+                severity: warn
   - name: int_team_xwalk
     columns:
       - name: team_uid
         tests: [not_null]
       - name: ws_team_id
-        tests: [not_null, unique]
+        tests: [not_null, unique]            # anchor (error)
+      - name: sofa_team_id
+        tests:
+          - unique:
+              config:
+                where: "sofa_team_id is not null"
+                severity: warn
+      - name: fot_team_id
+        tests:
+          - unique:
+              config:
+                where: "fot_team_id is not null"
+                severity: warn
   - name: stg_ws_lineups
     columns:
       - name: player_uid

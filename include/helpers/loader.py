@@ -56,14 +56,11 @@ def _extract_id_from_filename(path, pattern):
 # ── Generic table pusher ──────────────────────────────────────────────────────
 
 def _push_table(cur, table, rows, conflict_cols, schema, combo_id,
-                delete_first=False, update_where=None):
+                delete_first=False):
     """
     Push a list of row dicts to a RAW table.
     Wrapped in a SAVEPOINT so a single table failure doesn't
     abort the entire provider transaction.
-
-    update_where: optional conditional-update predicate forwarded to upsert()
-    (e.g. the sofa_referees cumulative-stats guard).
     """
     if not rows:
         return 0
@@ -77,7 +74,7 @@ def _push_table(cur, table, rows, conflict_cols, schema, combo_id,
             )
 
         for row in rows:
-            upsert(cur, table, row, conflict_cols, schema, update_where=update_where)
+            upsert(cur, table, row, conflict_cols, schema)
 
         cur.execute(f'RELEASE SAVEPOINT before_{table}')
         return len(rows)
@@ -91,6 +88,39 @@ def _push_table(cur, table, rows, conflict_cols, schema, combo_id,
 # SOFASCORE RESHAPE HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
+# read_json_data.py emits Sofascore odds WIDE; we store it long. This helper
+# reshapes the wide odds frame into long rows. (sofa_match_stats and
+# fot_team_stats are kept WIDE — see their loaders.)
+
+_ODDS_SKIP = {'match_id', 'combo_id', 'ingested_at'}
+
+
+def _melt_sofa_odds_long(df, combo_id):
+    """
+    Reshape wide Sofascore odds (one column per selection) into long rows:
+    one row per non-null selection. Lossless and robust — the full selection
+    label is kept verbatim (oddsp_odds remains the decomposed primary source).
+    """
+    if df is None or not hasattr(df, 'to_dict') or len(df) == 0:
+        return []
+
+    out = []
+    for rec in df.to_dict('records'):
+        mid = rec.get('match_id')
+        ing = rec.get('ingested_at')
+        for col, val in rec.items():
+            if col in _ODDS_SKIP or val is None:
+                continue
+            out.append({
+                'combo_id':    combo_id,
+                'match_id':    mid,
+                'selection':   col,
+                'odds_value':  str(val),
+                'ingested_at': ing,
+            })
+    return out
+
+
 # read_json_data.py emits the provider-native primary key as `id`, which would
 # collide with the BIGSERIAL surrogate `id`. Remap it to the natural key column.
 _SOFA_ID_REMAP = {
@@ -99,16 +129,6 @@ _SOFA_ID_REMAP = {
     'sofa_referees': 'referee_id',
     'sofa_managers': 'manager_id',
     'sofa_shots':    'shot_id',
-}
-
-
-# Per-table conditional-update guards. Sofascore ships CUMULATIVE career referee
-# stats in every match JSON, so games/cards grow over time. Without this guard an
-# out-of-order (or re-)load could overwrite a newer, more-complete referee record
-# with an older one. Only overwrite when the incoming row has more games.
-_SOFA_UPDATE_WHERE = {
-    'sofa_referees':
-        'sofa_referees.games IS NULL OR EXCLUDED.games > sofa_referees.games',
 }
 
 
@@ -156,6 +176,7 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema):
     from include.helpers.whoscored.parse_discipline import parse_discipline
     from include.helpers.whoscored.parse_possession import parse_possession
     from include.helpers.whoscored.parse_advanced_possession import parse_possession_advanced
+    from include.helpers.whoscored.parse_carries import parse_carries
     from include.helpers.whoscored.parse_shooting import parse_shooting
     from include.helpers.whoscored.parse_game_state import parse_game_state
 
@@ -177,6 +198,7 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema):
         'attendance':         ws_data.get('attendance'),
         'referee':            (ws_data.get('referee') or {}).get('name'),
         'start_time':         ws_data.get('startTime'),
+        'has_ws_events':      True,
     }
     _push_table(cur, 'ws_match_meta', [meta_row], ['combo_id'], schema, combo_id)
     total += 1
@@ -199,6 +221,7 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema):
         (parse_discipline,           'ws_team_discipline',  'ws_player_discipline',  'team', 'player'),
         (parse_possession,           'ws_team_possession',  'ws_player_possession',  'team', 'player'),
         (parse_possession_advanced,  'ws_team_poss_adv',    None,                    'team', None),
+        (parse_carries,              'ws_team_carries',     'ws_player_carries',     'team', 'player'),
         (parse_shooting,             'ws_team_shooting',    'ws_player_shooting',    'team', 'player'),
         (parse_goalkeeping,          None,                  'ws_player_goalkeep',    None,   'keepers'),
     ]
@@ -358,6 +381,7 @@ def _load_sofascore(cur, sf_dir, combo_id, schema):
     graph_path = find_sofa('graph')
     heatmap_home_path = find_sofa('heatmap_home_team')
     heatmap_away_path = find_sofa('heatmap_away_team')
+    full_heatmaps_path = find_sofa('player_heatmaps')   # full per-player heatmaps (optional)
 
     if not lineups_path or not main_path:
         log.warning('  Sofascore: missing required files, skipping')
@@ -445,11 +469,11 @@ def _load_sofascore(cur, sf_dir, combo_id, schema):
 
     if odds_path:
         try:
-            # Wide format: one row per match, one column per
-            # {period}_{market}_{selection} (+ _winning label cols). Columns
-            # auto-added at load, like sofa_match_stats / fot_team_stats.
             df_tables['sofa_odds'] = (
-                rd_json.odds_table(odds_path, combo_id, match_id),
+                _melt_sofa_odds_long(
+                    rd_json.odds_table(odds_path, combo_id, match_id),
+                    combo_id,
+                ),
                 []
             )
         except Exception:
@@ -461,7 +485,7 @@ def _load_sofascore(cur, sf_dir, combo_id, schema):
                 rd_json.misc_json_data(
                     avg_pos_path, comments_path, graph_path,
                     heatmap_home_path, heatmap_away_path,
-                    match_id, combo_id, full_heatmaps={'None': None},
+                    match_id, combo_id, full_heatmaps=full_heatmaps_path,
                 ),
                 []  # delete+insert, no upsert conflict
             )
@@ -513,8 +537,7 @@ def _load_sofascore(cur, sf_dir, combo_id, schema):
             # are delete-by-combo then re-insert for idempotency.
             delete_first = (conflict_cols == [])
             total += _push_table(cur, table_name, rows, conflict_cols, schema,
-                                 combo_id, delete_first=delete_first,
-                                 update_where=_SOFA_UPDATE_WHERE.get(table_name))
+                                 combo_id, delete_first=delete_first)
         except Exception as e:
             log.error(f'  Sofascore {table_name} push failed: {e}')
 
@@ -580,14 +603,38 @@ def load_match(match_descriptor: dict, conn, schema: str = 'raw'):
             log.error(f'[{combo_id}] {name} load failed: {e}')
             failures.append(name)
 
-    # ── WhoScored (required) ─────────────────────────────────────────
+    # ── WhoScored (anchor when present) ──────────────────────────────
+    from include.helpers.common.discovery import is_valid_ws_matchcentre
     ws_path = match_descriptor.get('ws_path')
     ws_data = _load_json(ws_path)
-    if not ws_data:
-        raise ValueError(f'[{combo_id}] No WhoScored data — cannot proceed')
 
-    ws_id = _extract_id_from_filename(ws_path, r'whoscored_(\d+)\.json')
-    _run_provider('whoscored', _load_whoscored, ws_data, ws_id, combo_id, schema)
+    # Trust the descriptor's validity flag if discovery set one, else validate
+    # the content now. A stub/garbage centre-data file is treated as absent:
+    # skip WhoScored (no failure) and load the rest. Identity for this match
+    # then resolves through the global crosswalk built from the other matches.
+    ws_valid = match_descriptor.get('ws_valid')
+    if ws_valid is None:
+        ws_valid = is_valid_ws_matchcentre(ws_data)
+
+    if ws_valid:
+        ws_id = _extract_id_from_filename(ws_path, r'whoscored_(\d+)\.json')
+        _run_provider('whoscored', _load_whoscored, ws_data, ws_id, combo_id, schema)
+    else:
+        log.warning(f'[{combo_id}] WhoScored matchCentreData missing/invalid — '
+                    f'skipping WhoScored; loading other providers only. '
+                    f'WhoScored-derived facts will be empty for this match.')
+        # Durable, queryable record of the absence: a stub ws_match_meta row with
+        # has_ws_events=false. Makes `WHERE NOT has_ws_events` the single source
+        # of truth for WhoScored coverage, and lets discovery's DB-diff see the
+        # match as handled. On conflict only whoscored_match_id + has_ws_events
+        # update, so a later FBref backfill's team columns are preserved.
+        stub_ws_id = (_extract_id_from_filename(ws_path, r'whoscored_(\d+)\.json')
+                      if ws_path else None)
+        _push_table(
+            cur, 'ws_match_meta',
+            [{'whoscored_match_id': stub_ws_id, 'combo_id': combo_id,
+              'has_ws_events': False}],
+            ['combo_id'], schema, combo_id)
 
     # ── Fotmob (optional) ─────────────────────────────────────────────
     fm_path = match_descriptor.get('fm_path')

@@ -25,9 +25,29 @@ returned for reprocessing — used after a parser or schema change.
 
 import os
 import re
+import json
 import logging
 
 log = logging.getLogger(__name__)
+
+
+def is_valid_ws_matchcentre(data) -> bool:
+    """
+    True only for REAL WhoScored matchCentreData.
+
+    When a match has no centre data, WhoScored serves a stub — a flat
+    {eventType: index} lookup dictionary — which is valid JSON but has none of
+    the match structure the parsers need. A genuine feed has home/away team
+    objects (with teamId) and an events list. This distinguishes the two so the
+    pipeline can skip WhoScored for that match instead of crashing on it.
+    """
+    return (
+        isinstance(data, dict)
+        and isinstance(data.get('home'), dict)
+        and isinstance(data.get('away'), dict)
+        and 'teamId' in data['home']
+        and isinstance(data.get('events'), list)
+    )
 
 
 def _get_loaded_combo_ids(conn, schema: str) -> set[str]:
@@ -73,6 +93,15 @@ def _scan_fixtures(fixtures_dir: str) -> list[dict]:
             log.warning(f'No whoscored JSON in {ws_dir}, skipping')
             continue
 
+        # Validate the WhoScored CONTENT (not just the filename). A match with a
+        # stub/garbage centre-data file is treated as WhoScored-absent.
+        ws_valid = False
+        try:
+            with open(ws_path, 'r', encoding='utf-8') as fp:
+                ws_valid = is_valid_ws_matchcentre(json.load(fp))
+        except Exception as e:
+            log.warning(f'{ws_path}: unreadable WhoScored JSON ({e})')
+
         # Optional provider subdirectories
         fm_dir = os.path.join(combo_path, 'fotmob')
         sf_dir = os.path.join(combo_path, 'sofascore')
@@ -87,16 +116,32 @@ def _scan_fixtures(fixtures_dir: str) -> list[dict]:
                     fm_id = int(m.group(1))
                     break
 
+        has_other = (fm_path is not None
+                     or os.path.isdir(sf_dir) or os.path.isdir(odds_dir))
+
+        # A WhoScored-invalid match is still loadable from the other providers
+        # (identity resolves via the global crosswalk). Only skip if there is
+        # genuinely nothing to load.
+        if not ws_valid:
+            if not has_other:
+                log.warning(f'{combo_id}: WhoScored invalid and no other '
+                            f'providers present — skipping')
+                continue
+            log.warning(f'{combo_id}: WhoScored matchCentreData missing/invalid — '
+                        f'loading other providers only (identity via crosswalk; '
+                        f'WhoScored-derived facts will be empty for this match)')
+
         discovered.append({
             'combo_id':             combo_id,
             'match_dir':            combo_path,
             'ws_path':              ws_path,
             'ws_id':                ws_id,
+            'ws_valid':             ws_valid,
             'fm_path':              fm_path,
             'fm_id':                fm_id,
             'sf_dir':               sf_dir if os.path.isdir(sf_dir) else None,
             'odds_dir':             odds_dir if os.path.isdir(odds_dir) else None,
-            'has_ws_events':        True,
+            'has_ws_events':        ws_valid,
             'has_fotmob_data':      fm_path is not None,
             'has_sofascore_data':   os.path.isdir(sf_dir),
             'has_odds_data':        os.path.isdir(odds_dir),
