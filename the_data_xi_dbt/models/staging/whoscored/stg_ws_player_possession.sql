@@ -1,6 +1,8 @@
-/* trivial tier (player-grain): 1:1 passthrough (introspected) + uids. */
+/* trivial tier (player-grain): text-numeric stat cols cast via introspection. */
 select
-    {{ passthrough_columns(source('raw','ws_player_possession'), 's', exclude=['id','ingested_at']) }},
+    {{ cast_text_numeric(source('raw','ws_player_possession'),
+                         keep_text=['combo_id', 'player_name'],
+                         drop=['id', 'ingested_at']) }},
     coalesce(px.player_uid, s.player_id) as player_uid,
     coalesce(tx.team_uid, s.team_id) as team_uid
 from {{ source('raw','ws_player_possession') }} s

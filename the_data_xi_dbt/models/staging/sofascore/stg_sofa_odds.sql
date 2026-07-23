@@ -1,7 +1,11 @@
-/* trivial tier (flat): raw sofa_odds is WIDE - one column per
-   {period}_{market}_{selection}. Values are fractional-odds strings ('29/100')
-   and text winning labels ('No','Over'), so this is a 1:1 passthrough, NOT a
-   numeric cast. (Fractional->decimal conversion, if wanted, belongs in marts.) */
+/* trivial tier (flat): passthrough.
+   NB `odds_value` STAYS TEXT — Sofascore ships FRACTIONAL odds ('12/5'), which
+   are not castable. odds_decimal converts them (num/den + 1) for maths. */
 select
-    {{ passthrough_columns(source('raw','sofa_odds'), 's', exclude=['id','ingested_at']) }}
+    {{ passthrough_columns(source('raw','sofa_odds'), 's', exclude=['id','ingested_at']) }},
+    case
+        when s.odds_value ~ '^[0-9]+/[0-9]+$'
+        then round(split_part(s.odds_value, '/', 1)::numeric
+                 / nullif(split_part(s.odds_value, '/', 2)::numeric, 0) + 1, 4)
+    end as odds_decimal
 from {{ source('raw','sofa_odds') }} s
