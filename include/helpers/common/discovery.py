@@ -1,26 +1,34 @@
 """
 include/helpers/common/discovery.py
 ====================================
-Scans the fixtures directory for match data organised in provider subdirectories.
+Scans the raw-data tree for match data organised in provider subdirectories.
 
-Expected directory structure:
-    {fixtures_dir}/
-    └── {combo_id}/
-        ├── whoscored/    → whoscored_{ws_id}.json    (required)
-        ├── fotmob/       → fotmob_{fm_id}.json       (optional)
-        ├── sofascore/    → {sf_id}_{type}.json        (optional)
-        └── oddspedia/    → {op_id}_odds_{market}.json (optional)
+Expected directory structure (mirrors the scraper's `Done` folder):
+    {data_root}/
+    └── {competition}/                 e.g. Premier_League
+        └── {season}/                  e.g. 2026_2027
+            └── {combo_id}/
+                ├── whoscored/    → whoscored_{ws_id}.json    (optional*)
+                ├── fotmob/       → fotmob_{fm_id}.json       (optional)
+                ├── sofascore/    → {sf_id}_{type}.json        (optional)
+                └── oddspedia/    → {op_id}_odds_{market}.json (optional)
 
-A match folder is valid if it has a whoscored/ subdirectory with at least
-one whoscored_*.json file.
+`fixtures_dir` may point at the data root (every competition/season is
+scanned, optionally filtered) OR directly at a single season folder (its
+immediate subdirectories are combo_ids) — both are detected automatically.
+
+*A match is loadable if it has valid WhoScored matchCentreData OR at least one
+other provider. WhoScored-absent matches (missing folder, missing file, or a
+stub file — e.g. the whole Saudi Pro League) load the other providers only.
 
 Discovery is split into two concerns:
-    _scan_fixtures()        — pure filesystem scan → match descriptors
+    _scan_fixtures()        — pure filesystem scan of ONE season folder
     _get_loaded_combo_ids() — DB diff (what's already in RAW)
 
-discover_unloaded_matches() composes them. With force_reload=True the DB diff
-is skipped entirely (the DB is never queried), so every valid match on disk is
-returned for reprocessing — used after a parser or schema change.
+discover_unloaded_matches() composes them across every selected season
+folder. With force_reload=True the DB diff is skipped entirely (the DB is
+never queried), so every valid match on disk is returned for reprocessing —
+used after a parser or schema change.
 """
 
 import os
@@ -29,6 +37,58 @@ import json
 import logging
 
 log = logging.getLogger(__name__)
+
+# combo_id folder: match date + team codes, e.g. 2026-08-21ArsCov
+COMBO_DIR_RE = re.compile(r'^\d{4}-\d{2}-\d{2}\S+$')
+
+
+def parse_csv_param(value) -> list[str] | None:
+    """'Premier_League, UCL' / ['UCL'] / '' / None -> ['Premier_League','UCL'] / ['UCL'] / None."""
+    if not value:
+        return None
+    items = value if isinstance(value, (list, tuple)) else str(value).split(',')
+    items = [str(i).strip() for i in items if str(i).strip()]
+    return items or None
+
+
+def _is_season_dir(path: str) -> bool:
+    """True if `path`'s immediate subdirectories are combo_id folders."""
+    try:
+        return any(COMBO_DIR_RE.match(d) and os.path.isdir(os.path.join(path, d))
+                   for d in os.listdir(path))
+    except OSError:
+        return False
+
+
+def find_season_dirs(
+    root: str,
+    competitions: list[str] | None = None,
+    seasons: list[str] | None = None,
+) -> list[tuple[str | None, str | None, str]]:
+    """
+    Resolve `root` to the season folders to scan, as (competition, season, path).
+
+    `root` is either a single season folder (returned as-is; filters ignored)
+    or the data root laid out as {competition}/{season}/.
+    """
+    if _is_season_dir(root):
+        return [(None, None, root)]
+
+    out = []
+    for comp in sorted(os.listdir(root)):
+        comp_path = os.path.join(root, comp)
+        if not os.path.isdir(comp_path):
+            continue
+        if competitions and comp not in competitions:
+            continue
+        for season in sorted(os.listdir(comp_path)):
+            season_path = os.path.join(comp_path, season)
+            if not os.path.isdir(season_path):
+                continue
+            if seasons and season not in seasons:
+                continue
+            out.append((comp, season, season_path))
+    return out
 
 
 def is_valid_ws_matchcentre(data) -> bool:
@@ -64,10 +124,11 @@ def _get_loaded_combo_ids(conn, schema: str) -> set[str]:
         return set()
 
 
-def _scan_fixtures(fixtures_dir: str) -> list[dict]:
+def _scan_fixtures(fixtures_dir: str, competition: str | None = None,
+                   season: str | None = None) -> list[dict]:
     """
-    Pure filesystem scan: walk the fixtures tree and build a descriptor for
-    every valid match folder (one with a whoscored/whoscored_*.json). No DB
+    Pure filesystem scan of ONE season folder: build a descriptor for every
+    loadable match folder (valid WhoScored and/or any other provider). No DB
     access. Returns descriptors sorted by combo_id.
     """
     discovered = []
@@ -77,30 +138,27 @@ def _scan_fixtures(fixtures_dir: str) -> list[dict]:
         if not os.path.isdir(combo_path):
             continue
 
-        # WhoScored subdirectory + JSON is required
+        # WhoScored is optional: a missing folder, missing file, or stub file
+        # all mean "WhoScored-absent" (handled below), not "skip the match".
         ws_dir = os.path.join(combo_path, 'whoscored')
-        if not os.path.isdir(ws_dir):
-            continue
-
         ws_path = ws_id = None
-        for f in os.listdir(ws_dir):
-            m = re.match(r'^whoscored_(\d+)\.json$', f)
-            if m:
-                ws_path = os.path.join(ws_dir, f)
-                ws_id = int(m.group(1))
-                break
-        if not ws_path:
-            log.warning(f'No whoscored JSON in {ws_dir}, skipping')
-            continue
+        if os.path.isdir(ws_dir):
+            for f in os.listdir(ws_dir):
+                m = re.match(r'^whoscored_(\d+)\.json$', f)
+                if m:
+                    ws_path = os.path.join(ws_dir, f)
+                    ws_id = int(m.group(1))
+                    break
 
         # Validate the WhoScored CONTENT (not just the filename). A match with a
         # stub/garbage centre-data file is treated as WhoScored-absent.
         ws_valid = False
-        try:
-            with open(ws_path, 'r', encoding='utf-8') as fp:
-                ws_valid = is_valid_ws_matchcentre(json.load(fp))
-        except Exception as e:
-            log.warning(f'{ws_path}: unreadable WhoScored JSON ({e})')
+        if ws_path:
+            try:
+                with open(ws_path, 'r', encoding='utf-8') as fp:
+                    ws_valid = is_valid_ws_matchcentre(json.load(fp))
+            except Exception as e:
+                log.warning(f'{ws_path}: unreadable WhoScored JSON ({e})')
 
         # Optional provider subdirectories
         fm_dir = os.path.join(combo_path, 'fotmob')
@@ -127,12 +185,16 @@ def _scan_fixtures(fixtures_dir: str) -> list[dict]:
                 log.warning(f'{combo_id}: WhoScored invalid and no other '
                             f'providers present — skipping')
                 continue
-            log.warning(f'{combo_id}: WhoScored matchCentreData missing/invalid — '
-                        f'loading other providers only (identity via crosswalk; '
-                        f'WhoScored-derived facts will be empty for this match)')
+            # Per-match detail at DEBUG: whole leagues (Saudi) are WhoScored-
+            # absent by design; the load DAG logs the summary list.
+            log.debug(f'{combo_id}: WhoScored matchCentreData missing/invalid — '
+                      f'loading other providers only (identity via crosswalk; '
+                      f'WhoScored-derived facts will be empty for this match)')
 
         discovered.append({
             'combo_id':             combo_id,
+            'competition':          competition,
+            'season':               season,
             'match_dir':            combo_path,
             'ws_path':              ws_path,
             'ws_id':                ws_id,
@@ -155,17 +217,24 @@ def discover_unloaded_matches(
     conn,
     schema: str = 'raw',
     force_reload: bool = False,
+    competitions: list[str] | None = None,
+    seasons: list[str] | None = None,
+    combo_ids: list[str] | None = None,
 ) -> list[dict]:
     """
-    Scan the fixtures directory and return match descriptors for Airflow task
+    Scan the raw-data tree and return match descriptors for Airflow task
     mapping.
 
     Args:
-        fixtures_dir: Root path containing combo_id directories.
+        fixtures_dir: The data root ({competition}/{season}/{combo_id}) or a
+                      single season folder ({combo_id}/ directly beneath).
         conn:         psycopg2 connection (unused when force_reload=True).
         schema:       Postgres schema (default: 'raw').
         force_reload: If True, bypass the DB diff and return ALL valid matches
                       on disk (reprocess everything). The loader is idempotent.
+        competitions: Only these competition folders (None = all).
+        seasons:      Only these season folders (None = all).
+        combo_ids:    Only these matches (None = all).
 
     Returns:
         List of match descriptor dicts.
@@ -174,7 +243,31 @@ def discover_unloaded_matches(
         log.error(f'Fixtures directory not found: {fixtures_dir}')
         return []
 
-    all_matches = _scan_fixtures(fixtures_dir)
+    season_dirs = find_season_dirs(fixtures_dir, competitions, seasons)
+    log.info(f'Scanning {len(season_dirs)} season folder(s) under {fixtures_dir}')
+
+    all_matches, seen = [], {}
+    for comp, season, path in season_dirs:
+        found = _scan_fixtures(path, comp, season)
+        log.info(f'  {comp or "-"}/{season or os.path.basename(path)}: '
+                 f'{len(found)} match folders')
+        for m in found:
+            # combo_id is the global match key; the same id in two folders
+            # would load twice into the same rows — keep the first, flag it.
+            if m['combo_id'] in seen:
+                log.warning(f'Duplicate combo_id {m["combo_id"]} in {m["match_dir"]} '
+                            f'(already found in {seen[m["combo_id"]]}) — skipping')
+                continue
+            seen[m['combo_id']] = m['match_dir']
+            all_matches.append(m)
+
+    if combo_ids:
+        wanted = set(combo_ids)
+        all_matches = [m for m in all_matches if m['combo_id'] in wanted]
+        missing = wanted - {m['combo_id'] for m in all_matches}
+        if missing:
+            log.warning(f'combo_ids not found on disk: {sorted(missing)}')
+
     log.info(f'{len(all_matches)} valid match folders on disk')
 
     if force_reload:

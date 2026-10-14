@@ -29,7 +29,9 @@ SET search_path TO raw;
 
 CREATE TABLE IF NOT EXISTS ws_match_meta (
     id                      BIGSERIAL PRIMARY KEY,
-    whoscored_match_id      INTEGER NOT NULL,
+    -- NULL for a WhoScored-absent stub row (no whoscored file at all, e.g.
+    -- every Saudi Pro League match) — see has_ws_events below.
+    whoscored_match_id      INTEGER,
     combo_id                TEXT NOT NULL,
     home_team               TEXT,
     home_team_id            INTEGER,
@@ -46,6 +48,10 @@ CREATE TABLE IF NOT EXISTS ws_match_meta (
     has_ws_events           BOOLEAN DEFAULT TRUE,
     UNIQUE (combo_id)
 );
+
+-- Existing databases: the column was NOT NULL before WhoScored-absent stubs
+-- existed. Idempotent — a no-op once applied.
+ALTER TABLE ws_match_meta ALTER COLUMN whoscored_match_id DROP NOT NULL;
 
 -- ── Lineups ──────────────────────────────────────────────────────────────────
 

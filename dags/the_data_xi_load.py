@@ -3,7 +3,9 @@ the_data_xi_load.py
 ===================
 Main Airflow DAG for The Data XI v2 load pipeline.
 
-Discovers unprocessed matches across the fixtures directory tree, then
+Discovers unprocessed matches across every {competition}/{season} folder
+under the raw-data root (optionally filtered by the `competitions` / `seasons`
+params), then
 dynamically maps a load task per match. Each task runs all provider
 parsers and pushes to the RAW schema.
 
@@ -21,12 +23,12 @@ from airflow.models.param import Param
 from datetime import datetime
 import logging
 
-from include.helpers.common.discovery import discover_unloaded_matches
+from include.helpers.common.discovery import discover_unloaded_matches, parse_csv_param
 from include.helpers.loader import load_match
 
 log = logging.getLogger(__name__)
 
-FIXTURES_DIR    = '/usr/local/airflow/data/EPL/2018_2019'
+FIXTURES_DIR    = '/usr/local/airflow/data'      # {competition}/{season}/{combo_id}
 POSTGRES_CONN   = 'the_data_xi_postgres'
 TARGET_SCHEMA   = 'raw'
 
@@ -50,6 +52,21 @@ TARGET_SCHEMA   = 'raw'
                 'idempotent (upsert + delete-by-combo_id), so this is safe.'
             ),
         ),
+        'competitions': Param(
+            '',
+            type='string',
+            title='Competitions',
+            description=(
+                'Comma-separated competition folders to scan, e.g. '
+                '"Premier_League, UCL". Blank = all.'
+            ),
+        ),
+        'seasons': Param(
+            '',
+            type='string',
+            title='Seasons',
+            description='Comma-separated season folders, e.g. "2026_2027". Blank = all.',
+        ),
     },
     default_args={
         'owner': 'the_data_xi',
@@ -65,7 +82,10 @@ def the_data_xi_load():
         When the `force_reload` param is True, the DB diff is bypassed and every
         discovered match is returned for reprocessing.
         """
-        force_reload = bool(context['params'].get('force_reload', False))
+        p = context['params']
+        force_reload = bool(p.get('force_reload', False))
+        competitions = parse_csv_param(p.get('competitions'))
+        seasons      = parse_csv_param(p.get('seasons'))
         hook = PostgresHook(postgres_conn_id=POSTGRES_CONN)
         conn = hook.get_conn()
         try:
@@ -74,6 +94,8 @@ def the_data_xi_load():
                 conn=conn,
                 schema=TARGET_SCHEMA,
                 force_reload=force_reload,
+                competitions=competitions,
+                seasons=seasons,
             )
         finally:
             conn.close()
@@ -129,4 +151,4 @@ def the_data_xi_load():
     loaded >> trigger_dbt
 
 
-the_data_xi_load()
+the_data_xi_load()

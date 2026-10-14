@@ -19,8 +19,10 @@ Typical uses
   * re-pull odds only                -> providers=[oddspedia]
   * rebuild game state               -> providers=[whoscored], parsers=[game_state]
 
-Season selection is the directory: edit FIXTURES_DIR (or set the fixtures_dir
-param) and run one season at a time, so failures stay easy to debug.
+Scope is set with the `competitions` / `seasons` / `combo_ids` params (blank =
+everything under the data root). Prefer one competition/season at a time so
+failures stay easy to debug; `combo_ids` re-runs specific matches only.
+`fixtures_dir` can still point straight at a single season folder.
 
 This DAG is deliberately separate from `the_data_xi_load` so the nightly load
 keeps its own defaults and a partial reload can never fire on a schedule.
@@ -33,19 +35,19 @@ from airflow.models.param import Param
 from datetime import datetime
 import logging
 
-from include.helpers.common.discovery import discover_unloaded_matches
+from include.helpers.common.discovery import discover_unloaded_matches, parse_csv_param
 from include.helpers.loader import load_match, PROVIDERS, WS_UNITS
 
 log = logging.getLogger(__name__)
 
-FIXTURES_DIR  = '/usr/local/airflow/data/EPL/2018_2019'
+FIXTURES_DIR  = '/usr/local/airflow/data'      # {competition}/{season}/{combo_id}
 POSTGRES_CONN = 'the_data_xi_postgres'
 TARGET_SCHEMA = 'raw'
 
 
 @dag(
     dag_id='the_data_xi_selective_reload',
-    description='Manual selective reload of chosen providers/parsers over one season',
+    description='Manual selective reload of chosen providers/parsers over selected matches',
     start_date=datetime(2025, 1, 1),
     schedule=None,                 # manual trigger ONLY — never runs on a timer
     catchup=False,
@@ -72,13 +74,37 @@ TARGET_SCHEMA = 'raw'
                 'rewrites ws_sequences.'
             ),
         ),
+        'competitions': Param(
+            '',
+            type='string',
+            title='Competitions',
+            description=(
+                'Comma-separated competition folders, e.g. "Premier_League, UCL". '
+                'Blank = all.'
+            ),
+        ),
+        'seasons': Param(
+            '',
+            type='string',
+            title='Seasons',
+            description='Comma-separated season folders, e.g. "2026_2027". Blank = all.',
+        ),
+        'combo_ids': Param(
+            '',
+            type='string',
+            title='Matches (combo_ids)',
+            description=(
+                'Comma-separated combo_ids to reload, e.g. "2026-08-21ArsCov". '
+                'Blank = every match in the selected competitions/seasons.'
+            ),
+        ),
         'fixtures_dir': Param(
             '',
             type='string',
             title='Fixtures dir override',
             description=(
-                f'Leave blank to use the DAG default ({FIXTURES_DIR}). Set it to '
-                'reload a different season without editing the file.'
+                f'Leave blank to use the DAG default ({FIXTURES_DIR}). May point '
+                'at the data root or straight at one season folder.'
             ),
         ),
         'trigger_dbt': Param(
@@ -106,7 +132,13 @@ def the_data_xi_selective_reload():
         providers = p.get('providers') or list(PROVIDERS)
         parsers   = p.get('parsers') or list(WS_UNITS)
 
+        competitions = parse_csv_param(p.get('competitions'))
+        seasons      = parse_csv_param(p.get('seasons'))
+        combo_ids    = parse_csv_param(p.get('combo_ids'))
+
         log.info(f'Selective reload: dir={fixtures_dir}')
+        log.info(f'  scope     = competitions={competitions or "all"}, '
+                 f'seasons={seasons or "all"}, combo_ids={combo_ids or "all"}')
         log.info(f'  providers = {providers}')
         if 'whoscored' in providers:
             log.info(f'  ws units  = {parsers}')
@@ -121,6 +153,9 @@ def the_data_xi_selective_reload():
                 conn=conn,
                 schema=TARGET_SCHEMA,
                 force_reload=True,      # a reload always reprocesses what's on disk
+                competitions=competitions,
+                seasons=seasons,
+                combo_ids=combo_ids,
             )
         finally:
             conn.close()
@@ -129,8 +164,8 @@ def the_data_xi_selective_reload():
         if not matches:
             log.warning(
                 'No matches found — reload_single_match will be SKIPPED. Check '
-                'that fixtures_dir points at the SEASON folder (its immediate '
-                'subdirectories must be combo_ids).'
+                'the competitions / seasons / combo_ids values match the folder '
+                'names under the data root exactly.'
             )
         return matches
 
