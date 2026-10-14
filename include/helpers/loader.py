@@ -29,6 +29,33 @@ from include.helpers.common.db import (
 
 log = logging.getLogger(__name__)
 
+# ── Selective-reload registry ────────────────────────────────────────────────
+# Providers and the WhoScored units that can be reloaded independently. Because
+# _push_table deletes per-table/per-combo_id, running a subset rewrites ONLY
+# that subset's tables — everything else is left untouched.
+PROVIDERS = ('whoscored', 'fotmob', 'sofascore', 'oddspedia')
+
+WS_UNITS = (
+    'meta',                  # ws_match_meta
+    'lineups',               # ws_lineups, ws_formations
+    'passing',               # + ws_pass_map / ws_pass_network / ws_avg_positions
+    'passing_advanced',
+    'defending',
+    'discipline',
+    'possession',
+    'possession_advanced',   # + ws_sequences
+    'carries',
+    'shooting',              # + ws_shots
+    'goalkeeping',
+    'game_state',            # ws_game_states / team_states / context_events / team_state_agg
+)
+
+
+def _selected(name, selection):
+    """True if `name` is wanted. An empty/None selection means EVERYTHING."""
+    return not selection or name in selection
+
+
 # ── File I/O ──────────────────────────────────────────────────────────────────
 
 def _load_json(path):
@@ -166,8 +193,13 @@ def _pivot_team_stats_wide(rows):
 # PROVIDER LOADERS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _load_whoscored(cur, ws_data, ws_id, combo_id, schema):
-    """Run all WhoScored parsers and push to ws_* tables."""
+def _load_whoscored(cur, ws_data, ws_id, combo_id, schema, parsers=None):
+    """Run WhoScored parsers and push to ws_* tables.
+
+    parsers: iterable of WS_UNITS names to run. None/empty = all of them.
+    Each unit's tables are delete-then-insert scoped to (table, combo_id),
+    so a subset run leaves every other ws_* table untouched.
+    """
     from include.helpers.whoscored.parse_lineups import parse_lineups
     from include.helpers.whoscored.parse_passing import parse_passing
     from include.helpers.whoscored.parse_passing_advanced import parse_passing_advanced
@@ -200,33 +232,37 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema):
         'start_time':         ws_data.get('startTime'),
         'has_ws_events':      True,
     }
-    _push_table(cur, 'ws_match_meta', [meta_row], ['combo_id'], schema, combo_id)
-    total += 1
+    if _selected('meta', parsers):
+        _push_table(cur, 'ws_match_meta', [meta_row], ['combo_id'], schema, combo_id)
+        total += 1
 
     # ── Lineups + formations ──────────────────────────────────────────
-    lineup_result = parse_lineups(ws_data, ws_id, combo_id)
+    if _selected('lineups', parsers):
+        lineup_result = parse_lineups(ws_data, ws_id, combo_id)
 
-    rows = [remap_row(r, combo_id) for r in lineup_result.get('player', [])]
-    total += _push_table(cur, 'ws_lineups', rows, ['combo_id', 'player_id'], schema, combo_id)
+        rows = [remap_row(r, combo_id) for r in lineup_result.get('player', [])]
+        total += _push_table(cur, 'ws_lineups', rows, ['combo_id', 'player_id'], schema, combo_id)
 
-    rows = [remap_row(r, combo_id) for r in lineup_result.get('formations', [])]
-    total += _push_table(cur, 'ws_formations', rows,
-                         ['combo_id', 'team_id', 'formation_index'], schema, combo_id)
+        rows = [remap_row(r, combo_id) for r in lineup_result.get('formations', [])]
+        total += _push_table(cur, 'ws_formations', rows,
+                             ['combo_id', 'team_id', 'formation_index'], schema, combo_id)
 
     # ── Team + player stats from parsers ──────────────────────────────
     stat_parsers = [
-        (parse_passing,              'ws_team_passing',     'ws_player_passing',     'team', 'player'),
-        (parse_passing_advanced,     'ws_team_passing_adv', 'ws_player_passing_adv', 'team', 'player'),
-        (parse_defending,            'ws_team_defending',   'ws_player_defending',   'team', 'player'),
-        (parse_discipline,           'ws_team_discipline',  'ws_player_discipline',  'team', 'player'),
-        (parse_possession,           'ws_team_possession',  'ws_player_possession',  'team', 'player'),
-        (parse_possession_advanced,  'ws_team_poss_adv',    None,                    'team', None),
-        (parse_carries,              'ws_team_carries',     'ws_player_carries',     'team', 'player'),
-        (parse_shooting,             'ws_team_shooting',    'ws_player_shooting',    'team', 'player'),
-        (parse_goalkeeping,          None,                  'ws_player_goalkeep',    None,   'keepers'),
+        ('passing',              parse_passing,             'ws_team_passing',     'ws_player_passing',     'team', 'player'),
+        ('passing_advanced',     parse_passing_advanced,    'ws_team_passing_adv', 'ws_player_passing_adv', 'team', 'player'),
+        ('defending',            parse_defending,           'ws_team_defending',   'ws_player_defending',   'team', 'player'),
+        ('discipline',           parse_discipline,          'ws_team_discipline',  'ws_player_discipline',  'team', 'player'),
+        ('possession',           parse_possession,          'ws_team_possession',  'ws_player_possession',  'team', 'player'),
+        ('possession_advanced',  parse_possession_advanced, 'ws_team_poss_adv',    None,                    'team', None),
+        ('carries',              parse_carries,             'ws_team_carries',     'ws_player_carries',     'team', 'player'),
+        ('shooting',             parse_shooting,            'ws_team_shooting',    'ws_player_shooting',    'team', 'player'),
+        ('goalkeeping',          parse_goalkeeping,         None,                  'ws_player_goalkeep',    None,   'keepers'),
     ]
 
-    for parser_fn, team_table, player_table, team_key, player_key in stat_parsers:
+    for name, parser_fn, team_table, player_table, team_key, player_key in stat_parsers:
+        if not _selected(name, parsers):
+            continue
         try:
             result = parser_fn(ws_data, ws_id)
 
@@ -281,23 +317,24 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema):
                                      ['combo_id', 'player_id'], schema, combo_id)
 
         except Exception as e:
-            log.error(f'  WS parser for {team_table or player_table} failed: {e}')
+            log.error(f'  WS parser {name} failed: {e}')
 
     # ── Game state (parse_game_state → 4 tables, regenerated per match) ──
-    try:
-        gs = parse_game_state(ws_data, ws_id)
-        for gs_key, gs_table in (
-            ('states',         'ws_game_states'),
-            ('team_states',    'ws_team_states'),
-            ('context_events', 'ws_context_events'),
-            ('team_state_agg', 'ws_team_state_agg'),
-        ):
-            if gs.get(gs_key):
-                rows = [remap_row(r, combo_id) for r in gs[gs_key]]
-                total += _push_table(cur, gs_table, rows, [], schema,
-                                     combo_id, delete_first=True)
-    except Exception as e:
-        log.error(f'  WS parse_game_state failed: {e}')
+    if _selected('game_state', parsers):
+        try:
+            gs = parse_game_state(ws_data, ws_id)
+            for gs_key, gs_table in (
+                ('states',         'ws_game_states'),
+                ('team_states',    'ws_team_states'),
+                ('context_events', 'ws_context_events'),
+                ('team_state_agg', 'ws_team_state_agg'),
+            ):
+                if gs.get(gs_key):
+                    rows = [remap_row(r, combo_id) for r in gs[gs_key]]
+                    total += _push_table(cur, gs_table, rows, [], schema,
+                                         combo_id, delete_first=True)
+        except Exception as e:
+            log.error(f'  WS parse_game_state failed: {e}')
 
     log.info(f'  WhoScored: {total} rows loaded')
     return total
@@ -571,19 +608,28 @@ def _load_oddspedia(cur, odds_dir, combo_id, schema):
 # MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 
-def load_match(match_descriptor: dict, conn, schema: str = 'raw'):
+def load_match(match_descriptor: dict, conn, schema: str = 'raw',
+               providers=None, parsers=None):
     """
-    Load a single match from all available providers into the RAW schema.
+    Load a single match into the RAW schema.
 
     Uses PostgreSQL SAVEPOINTs to isolate each provider. If Fotmob fails,
     WhoScored data is preserved and Sofascore/Oddspedia can still load.
 
-    Raises if ANY provider fails so the Airflow task is marked as failed.
+    Raises if ANY provider that RAN fails so the Airflow task is marked failed.
 
     Args:
         match_descriptor: Dict from discovery with file paths and flags.
-        conn:   psycopg2 connection (caller manages commit/rollback).
-        schema: Target Postgres schema (default: 'raw').
+        conn:      psycopg2 connection (caller manages commit/rollback).
+        schema:    Target Postgres schema (default: 'raw').
+        providers: Iterable of PROVIDERS names to load. None/empty = all.
+        parsers:   Iterable of WS_UNITS names to run within WhoScored.
+                   None/empty = all. Ignored when whoscored isn't selected.
+
+    Selective reload: because every write is delete-then-insert scoped to
+    (table, combo_id), running a subset rewrites ONLY that subset's tables.
+    Nothing else in the match is touched — so re-running one parser after a
+    change never disturbs the other providers or the other ws_* tables.
     """
     cur = conn.cursor()
     combo_id = match_descriptor['combo_id']
@@ -606,7 +652,7 @@ def load_match(match_descriptor: dict, conn, schema: str = 'raw'):
     # ── WhoScored (anchor when present) ──────────────────────────────
     from include.helpers.common.discovery import is_valid_ws_matchcentre
     ws_path = match_descriptor.get('ws_path')
-    ws_data = _load_json(ws_path)
+    ws_data = _load_json(ws_path) if _selected('whoscored', providers) else None
 
     # Trust the descriptor's validity flag if discovery set one, else validate
     # the content now. A stub/garbage centre-data file is treated as absent:
@@ -616,9 +662,12 @@ def load_match(match_descriptor: dict, conn, schema: str = 'raw'):
     if ws_valid is None:
         ws_valid = is_valid_ws_matchcentre(ws_data)
 
-    if ws_valid:
+    if not _selected('whoscored', providers):
+        pass                       # provider deselected — leave every ws_* table alone
+    elif ws_valid:
         ws_id = _extract_id_from_filename(ws_path, r'whoscored_(\d+)\.json')
-        _run_provider('whoscored', _load_whoscored, ws_data, ws_id, combo_id, schema)
+        _run_provider('whoscored', _load_whoscored, ws_data, ws_id, combo_id, schema,
+                      parsers)
     else:
         log.warning(f'[{combo_id}] WhoScored matchCentreData missing/invalid — '
                     f'skipping WhoScored; loading other providers only. '
@@ -628,29 +677,30 @@ def load_match(match_descriptor: dict, conn, schema: str = 'raw'):
         # of truth for WhoScored coverage, and lets discovery's DB-diff see the
         # match as handled. On conflict only whoscored_match_id + has_ws_events
         # update, so a later FBref backfill's team columns are preserved.
-        stub_ws_id = (_extract_id_from_filename(ws_path, r'whoscored_(\d+)\.json')
-                      if ws_path else None)
-        _push_table(
-            cur, 'ws_match_meta',
-            [{'whoscored_match_id': stub_ws_id, 'combo_id': combo_id,
-              'has_ws_events': False}],
-            ['combo_id'], schema, combo_id)
+        if _selected('meta', parsers):
+            stub_ws_id = (_extract_id_from_filename(ws_path, r'whoscored_(\d+)\.json')
+                          if ws_path else None)
+            _push_table(
+                cur, 'ws_match_meta',
+                [{'whoscored_match_id': stub_ws_id, 'combo_id': combo_id,
+                  'has_ws_events': False}],
+                ['combo_id'], schema, combo_id)
 
     # ── Fotmob (optional) ─────────────────────────────────────────────
     fm_path = match_descriptor.get('fm_path')
-    fm_data = _load_json(fm_path)
+    fm_data = _load_json(fm_path) if _selected('fotmob', providers) else None
     if fm_data:
         fm_id = _extract_id_from_filename(fm_path, r'fotmob_(\d+)\.json')
         _run_provider('fotmob', _load_fotmob, fm_data, fm_id, combo_id, schema)
 
     # ── Sofascore (optional) ──────────────────────────────────────────
     sf_dir = match_descriptor.get('sf_dir')
-    if sf_dir and os.path.isdir(sf_dir):
+    if _selected('sofascore', providers) and sf_dir and os.path.isdir(sf_dir):
         _run_provider('sofascore', _load_sofascore, sf_dir, combo_id, schema)
 
     # ── Oddspedia (optional) ──────────────────────────────────────────
     odds_dir = match_descriptor.get('odds_dir')
-    if odds_dir and os.path.isdir(odds_dir):
+    if _selected('oddspedia', providers) and odds_dir and os.path.isdir(odds_dir):
         _run_provider('oddspedia', _load_oddspedia, odds_dir, combo_id, schema)
 
     cur.close()
@@ -659,4 +709,4 @@ def load_match(match_descriptor: dict, conn, schema: str = 'raw'):
     if failures:
         raise RuntimeError(
             f'[{combo_id}] {len(failures)} provider(s) failed: {", ".join(failures)}'
-        )
+        )

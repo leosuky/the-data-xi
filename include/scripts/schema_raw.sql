@@ -41,6 +41,9 @@ CREATE TABLE IF NOT EXISTS ws_match_meta (
     attendance              INTEGER,
     referee                 TEXT,
     start_time              TEXT,
+    -- TRUE for genuine event-stream loads; FALSE for a stub row (WhoScored
+    -- matchCentreData missing) or an FBref-backfilled match. dim_match reads it.
+    has_ws_events           BOOLEAN DEFAULT TRUE,
     UNIQUE (combo_id)
 );
 
@@ -1383,3 +1386,93 @@ CREATE TABLE IF NOT EXISTS oddsp_odds (
     odds_value              TEXT,
     odds_direction          INTEGER
 );
+
+
+-- ============================================================================
+-- Player meta tables (Fotmob player pages)
+-- ----------------------------------------------------------------------------
+-- Populated by the_data_xi_player_meta DAG (manual, ~once per season end).
+-- Grain is the PLAYER, not the match — natural key is fotmob_player_id, which
+-- joins to int_player_xwalk.fot_player_id and on to player_uid.
+--
+-- Numeric fields are typed here on purpose: Fotmob ships several of them as
+-- strings ("78", "98"), and a text column that looks numeric sorts lexically
+-- and silently corrupts ordering and aggregation.
+--
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS fot_player_meta (
+    id                   BIGSERIAL PRIMARY KEY,
+    fotmob_player_id     INTEGER NOT NULL,
+    player_name          TEXT,
+    birth_date           DATE,
+    gender               TEXT,
+    -- Coaches keep a meta row (height/age/foot/country/club are all still
+    -- true) but have NO rows in fot_player_positions.
+    is_coach             BOOLEAN DEFAULT FALSE,
+    is_captain           BOOLEAN DEFAULT FALSE,
+    primary_position     TEXT,          -- 'Coach' when is_coach
+    primary_position_key TEXT,          -- 'coach' when is_coach
+    position_count       INTEGER,       -- 0 for coaches
+    primary_team_id      INTEGER,
+    primary_team_name    TEXT,
+    on_loan              BOOLEAN,
+    height_cm            NUMERIC,
+    shirt_number         INTEGER,       -- NULL for coaches
+    age                  INTEGER,
+    preferred_foot       TEXT,
+    country              TEXT,
+    country_code         TEXT,
+    market_value_eur     NUMERIC,       -- NULL for coaches
+    contract_end         DATE,          -- NULL for coaches
+    seo_path             TEXT,
+    page_url             TEXT,
+    ingested_at          TIMESTAMP DEFAULT NOW(),
+    UNIQUE (fotmob_player_id)
+);
+
+-- The granular positional breakdown the match feeds don't carry: how many
+-- appearances a player made in each position, which is his main one, and where
+-- that sits on the pitch. EMPTY for coaches.
+CREATE TABLE IF NOT EXISTS fot_player_positions (
+    id                BIGSERIAL PRIMARY KEY,
+    fotmob_player_id  INTEGER NOT NULL,
+    position_key      TEXT,             -- 'centerattackingmidfielder'
+    position_label    TEXT,             -- 'Attacking Midfielder'
+    position_short    TEXT,             -- 'AM'
+    occurrences       INTEGER,          -- Fotmob spells it 'occurences'
+    position_code     INTEGER,          -- Fotmob slot code (84, 87, 104...)
+    is_main_position  BOOLEAN,
+    pitch_right       NUMERIC,          -- nullable: rarely-used positions
+    pitch_top         NUMERIC,          -- carry no pitch coordinates
+    pitch_ratio       NUMERIC,
+    ingested_at       TIMESTAMP DEFAULT NOW(),
+    UNIQUE (fotmob_player_id, position_key)
+);
+
+-- Senior career history: one row per club spell. Directly useful for
+-- transfer-aware analytics (when a player moved, and what he did there).
+-- For a coach this is his PLAYING career (coaching record lives in coachStats).
+CREATE TABLE IF NOT EXISTS fot_player_career (
+    id                BIGSERIAL PRIMARY KEY,
+    fotmob_player_id  INTEGER NOT NULL,
+    team_id           INTEGER,
+    team_name         TEXT,
+    start_date        DATE,
+    end_date          DATE,             -- NULL when current
+    is_active         BOOLEAN,
+    transfer_type     TEXT,
+    role              TEXT,
+    appearances       INTEGER,          -- NULL for a just-signed spell
+    goals             INTEGER,
+    assists           INTEGER,
+    ingested_at       TIMESTAMP DEFAULT NOW(),
+    UNIQUE (fotmob_player_id, team_id, start_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fot_player_positions_player
+    ON fot_player_positions (fotmob_player_id);
+CREATE INDEX IF NOT EXISTS idx_fot_player_career_player
+    ON fot_player_career (fotmob_player_id);
+CREATE INDEX IF NOT EXISTS idx_fot_player_meta_team
+    ON fot_player_meta (primary_team_id);
