@@ -53,8 +53,8 @@ TARGET_SCHEMA   = 'raw'
             ),
         ),
         'competitions': Param(
-            '',
-            type='string',
+            None,
+            type=['null', 'string'],      # optional: blank box in the UI = null
             title='Competitions',
             description=(
                 'Comma-separated competition folders to scan, e.g. '
@@ -62,8 +62,8 @@ TARGET_SCHEMA   = 'raw'
             ),
         ),
         'seasons': Param(
-            '',
-            type='string',
+            None,
+            type=['null', 'string'],      # optional: blank box in the UI = null
             title='Seasons',
             description='Comma-separated season folders, e.g. "2026_2027". Blank = all.',
         ),

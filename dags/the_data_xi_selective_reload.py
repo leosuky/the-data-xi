@@ -75,8 +75,8 @@ TARGET_SCHEMA = 'raw'
             ),
         ),
         'competitions': Param(
-            '',
-            type='string',
+            None,
+            type=['null', 'string'],      # optional: blank box in the UI = null
             title='Competitions',
             description=(
                 'Comma-separated competition folders, e.g. "Premier_League, UCL". '
@@ -84,14 +84,14 @@ TARGET_SCHEMA = 'raw'
             ),
         ),
         'seasons': Param(
-            '',
-            type='string',
+            None,
+            type=['null', 'string'],      # optional: blank box in the UI = null
             title='Seasons',
             description='Comma-separated season folders, e.g. "2026_2027". Blank = all.',
         ),
         'combo_ids': Param(
-            '',
-            type='string',
+            None,
+            type=['null', 'string'],      # optional: blank box in the UI = null
             title='Matches (combo_ids)',
             description=(
                 'Comma-separated combo_ids to reload, e.g. "2026-08-21ArsCov". '
@@ -99,8 +99,8 @@ TARGET_SCHEMA = 'raw'
             ),
         ),
         'fixtures_dir': Param(
-            '',
-            type='string',
+            None,
+            type=['null', 'string'],      # optional: blank box in the UI = null
             title='Fixtures dir override',
             description=(
                 f'Leave blank to use the DAG default ({FIXTURES_DIR}). May point '
