@@ -353,6 +353,14 @@ def shots_table(filepath: str, match_id: int, combo_id: str) -> pd.DataFrame:
     return shot_df
 
 
+# Sofascore physical-tracking fields (lineups -> player statistics). Present
+# only for tracked players, so they must NOT be zero-filled.
+PHYSICAL_STATS = {
+    'kilometersCovered', 'metersCoveredRunningKm', 'metersCoveredHighSpeedRunningKm',
+    'metersCoveredSprintingKm', 'numberOfSprints', 'topSpeed',
+}
+
+
 def player_stats(filepath: str, match_id: int, combo_id: str, home_id: int, away_id: int) -> pd.DataFrame:
     # From the Lineups JSON file
     with open(filepath, 'r', encoding='utf-8') as file:
@@ -404,7 +412,12 @@ def player_stats(filepath: str, match_id: int, combo_id: str, home_id: int, away
             player_stats.append(row)
 
     player_stats_df = pd.DataFrame(player_stats)
-    player_stats_df.fillna(0, inplace=True)
+    # Physical tracking stays NULL when a player wasn't tracked (goalkeepers
+    # outside the PL/UCL, patchy outfield coverage in some leagues) — a filled
+    # 0 would read as "ran 0 km" and corrupt every physical average. Every
+    # other stat keeps the 0 default, where a missing value genuinely means 0.
+    fill_cols = [c for c in player_stats_df.columns if c not in PHYSICAL_STATS]
+    player_stats_df[fill_cols] = player_stats_df[fill_cols].fillna(0)
     time_i = datetime.now(timezone.utc)
     player_stats_df['ingested_at'] = time_i
 
