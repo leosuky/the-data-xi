@@ -126,35 +126,45 @@ def teams_and_referee(filepath: str) -> dict:
 
     teams = []
 
-    coords = event['event']['homeTeam']['venue'].get('venueCoordinates')
+    # id/name are required; venue details are optional (smaller grounds often
+    # lack capacity/coordinates, and some clubs have no venue block at all).
+    team_venue = event['event']['homeTeam'].get('venue') or {}
+    coords = team_venue.get('venueCoordinates')
     row1 = {}
     row1['team_id'] = event['event']['homeTeam']['id']
     row1['name'] = event['event']['homeTeam']['name']
-    row1['stadium'] = event['event']['homeTeam']['venue']['stadium']['name']
-    row1['stadium_capacity'] = event['event']['homeTeam']['venue']['stadium']['capacity']
-    row1['country'] = event['event']['homeTeam']['country']['name']
-    row1['city'] = event['event']['homeTeam']['venue']['city']['name']
+    row1['stadium'] = (team_venue.get('stadium') or {}).get('name')
+    row1['stadium_capacity'] = (team_venue.get('stadium') or {}).get('capacity')
+    row1['country'] = (event['event']['homeTeam'].get('country') or {}).get('name')
+    row1['city'] = (team_venue.get('city') or {}).get('name')
     row1['latitude'] = coords['latitude'] if coords else ''
     row1['longitude'] = coords['longitude'] if coords else ''
-    row1['founded_date'] = convert_timestamp_to_datetime(
-        event['event']['homeTeam']['foundationDateTimestamp']
-    )
+    # Optional: newly promoted / smaller clubs (e.g. Al-Diriyah) have no
+    # foundation date on Sofascore.
+    founded_ts = event['event']['homeTeam'].get('foundationDateTimestamp')
+    row1['founded_date'] = (convert_timestamp_to_datetime(founded_ts)
+                            if founded_ts is not None else None)
 
     teams.append(row1)
 
-    coords = event['event']['awayTeam']['venue'].get('venueCoordinates')
+    # id/name are required; venue details are optional (smaller grounds often
+    # lack capacity/coordinates, and some clubs have no venue block at all).
+    team_venue = event['event']['awayTeam'].get('venue') or {}
+    coords = team_venue.get('venueCoordinates')
     row2 = {}
     row2['team_id'] = event['event']['awayTeam']['id']
     row2['name'] = event['event']['awayTeam']['name']
-    row2['stadium'] = event['event']['awayTeam']['venue']['stadium']['name']
-    row2['stadium_capacity'] = event['event']['awayTeam']['venue']['stadium']['capacity']
-    row2['country'] = event['event']['awayTeam']['country']['name']
-    row2['city'] = event['event']['awayTeam']['venue']['city']['name']
+    row2['stadium'] = (team_venue.get('stadium') or {}).get('name')
+    row2['stadium_capacity'] = (team_venue.get('stadium') or {}).get('capacity')
+    row2['country'] = (event['event']['awayTeam'].get('country') or {}).get('name')
+    row2['city'] = (team_venue.get('city') or {}).get('name')
     row2['latitude'] = coords['latitude'] if coords else ''
     row2['longitude'] = coords['longitude'] if coords else ''
-    row2['founded_date'] = convert_timestamp_to_datetime(
-        event['event']['awayTeam']['foundationDateTimestamp']
-    )
+    # Optional: newly promoted / smaller clubs (e.g. Al-Diriyah) have no
+    # foundation date on Sofascore.
+    founded_ts = event['event']['awayTeam'].get('foundationDateTimestamp')
+    row2['founded_date'] = (convert_timestamp_to_datetime(founded_ts)
+                            if founded_ts is not None else None)
 
     teams.append(row2)
 
@@ -162,28 +172,33 @@ def teams_and_referee(filepath: str) -> dict:
     time_i = datetime.now(timezone.utc)
     Teams_df['ingested_at'] = time_i
 
+    # Optional: Sofascore omits the referee for some matches. No referee ->
+    # empty frame (the loader skips empty tables) and referee_id = None.
     Referee = []
+    ref = event['event'].get('referee')
 
     row = {}
-    row['name'] = event['event']['referee']['name']
-    row['id'] = event['event']['referee']['id']
-    row['nationality'] = event['event']['referee']['country'].get('name')
-    row['red_cards'] = event['event']['referee']['redCards']
-    row['yellow_cards'] = event['event']['referee']['yellowCards']
-    row['double_yellow_cards'] = event['event']['referee']['yellowRedCards']
-    row['games'] = event['event']['referee']['games']
+    if ref:
+        row['name'] = ref.get('name')
+        row['id'] = ref.get('id')
+        row['nationality'] = (ref.get('country') or {}).get('name')
+        row['red_cards'] = ref.get('redCards')
+        row['yellow_cards'] = ref.get('yellowCards')
+        row['double_yellow_cards'] = ref.get('yellowRedCards')
+        row['games'] = ref.get('games')
+        Referee.append(row)
 
-    Referee.append(row)
     Referee_df = pd.DataFrame(Referee)
-    time_i = datetime.now(timezone.utc)
-    Referee_df['ingested_at'] = time_i
+    if not Referee_df.empty:
+        time_i = datetime.now(timezone.utc)
+        Referee_df['ingested_at'] = time_i
 
     data = {
         "teams": Teams_df,
         "referee": Referee_df,
         "home_team_id": row1['team_id'],
         "away_team_id": row2['team_id'],
-        "referee_id": row['id']
+        "referee_id": row.get('id')
     }
 
     return data
@@ -219,13 +234,17 @@ def match_details(
     with open(filepath_event, 'r', encoding='utf-8') as file:
         event = json.load(file)
 
-    with open(filepath_best_players, 'r', encoding='utf-8') as file:
-        best_players = json.load(file)
+    # Optional: no best_players_summary file when Sofascore published no
+    # ratings (e.g. an abandoned match) -> MOTM fields stay NULL.
+    best_players = {}
+    if filepath_best_players:
+        with open(filepath_best_players, 'r', encoding='utf-8') as file:
+            best_players = json.load(file)
 
     match_id = event['event']['id']
 
-    venue = event['event']['venue']['name']
-    referee_id = event['event']['referee']['id']
+    venue = (event['event'].get('venue') or {}).get('name')
+    referee_id = (event['event'].get('referee') or {}).get('id')
     home_team_id = event['event']['homeTeam']['id']
     away_team_id = event['event']['awayTeam']['id']
     home_manager_id = home_manager
@@ -277,8 +296,10 @@ def match_details(
     match_data = flatten_dict(match_data)
 
     match_data_df = pd.DataFrame([match_data])
-    match_data_df.time_currentPeriodStartTimestamp = pd.to_datetime(match_data_df.time_currentPeriodStartTimestamp, unit='s')
-    match_data_df.startTimestamp = pd.to_datetime(match_data_df.startTimestamp, unit='s')
+    # Epoch -> datetime; either field can be absent (e.g. abandoned matches).
+    for ts_col in ('time_currentPeriodStartTimestamp', 'startTimestamp'):
+        if ts_col in match_data_df.columns:
+            match_data_df[ts_col] = pd.to_datetime(match_data_df[ts_col], unit='s')
     time_i = datetime.now(timezone.utc)
     match_data_df['ingested_at'] = time_i
 

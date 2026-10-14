@@ -444,8 +444,11 @@ def _load_sofascore(cur, sf_dir, combo_id, schema):
         home_id = teams_and_ref['home_team_id']
         away_id = teams_and_ref['away_team_id']
     except Exception as e:
-        log.error(f'  Sofascore core parsing failed: {e}')
-        return 0
+        # Raise (don't return 0): a silent skip here drops sofa_matches and every
+        # other Sofascore table for the match while the task still shows green.
+        # Raising marks the provider failed -> the Airflow task fails visibly.
+        log.error(f'  Sofascore core parsing failed: {type(e).__name__}: {e}')
+        raise
 
     # Map of parser result → (table_name, conflict_keys)
     # Each value is a DataFrame — convert to records for upsert
