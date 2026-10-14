@@ -91,3 +91,12 @@
     {%- endfor -%}
     {{ out | join(',\n    ') }}
 {%- endmacro %}
+
+{# Typed cast of a raw TEXT column that may not exist yet. Raw tables only gain
+   a column once a payload carrying that field is loaded, and providers add /
+   drop fields between seasons (e.g. Sofascore dropped time.period1/2 start
+   timestamps in 2026/27). Emits nullif(alias.col,'')::type when the column is
+   in `cols`, else a typed NULL, so the model compiles on any database. #}
+{% macro cast_col_or_null(cols, alias, col, type) -%}
+    {%- if col in cols -%} nullif({{ alias }}.{{ col }}, '')::{{ type }} {%- else -%} null::{{ type }} {%- endif -%}
+{%- endmacro %}
