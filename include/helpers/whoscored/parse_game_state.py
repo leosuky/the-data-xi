@@ -551,7 +551,12 @@ def parse_game_state(data: dict, whoscored_match_id: int) -> dict:
                 agg[okey]['ft_touches_opp'] += 1
             if x >= BOX_X_MIN and BOX_Y_MIN <= y <= BOX_Y_MAX:
                 a['box_touches'] += 1
-        if e.get('isShot'):
+        # Own goal: WhoScored tags it with the CONCEDING player's team and
+        # isShot=True. Credit the goal to the beneficiary and count it as no
+        # one's shot (the timeline above already credits the score correctly).
+        if etype == 'Goal' and 'OwnGoal' in q:
+            agg[okey]['goals'] += 1
+        elif e.get('isShot'):
             a['shots'] += 1
             if (etype == 'Goal'
                     or (etype == 'SavedShot' and 'Blocked' not in q)):
@@ -607,7 +612,8 @@ def parse_game_state(data: dict, whoscored_match_id: int) -> dict:
         if e.get('eventId') in assist_event_ids:
             a['assists'] += 1
 
-        if etype in _PPDA_ACTIONS and x >= DEF_THIRD_MAX:
+        if (etype in _PPDA_ACTIONS and x >= DEF_THIRD_MAX
+                and not (etype == 'Foul' and acc)):   # fouls WON aren't defensive actions
             a['def_actions'] += 1
         if etype == 'Foul':
             if acc: a['fouls_won'] += 1

@@ -32,12 +32,11 @@ Key pass (Opta)
 Passes into channels / switches
     Switch of play: base pass with length > 32 AND lateral distance > 25.
 
-PPDA (Opta)
-    Opposition passes OUTSIDE their own defensive third (x > 33.3 from
-    their perspective, i.e. the pressing team's attacking 66.6) divided
-    by the pressing team's defensive actions outside THEIR own defensive
-    third (x > 33.3): tackles + interceptions + fouls + challenges +
-    blocked passes. Lower = more aggressive press.
+PPDA (Opta) — identical to the canonical definition in parse_advanced_possession
+    Opposition passes OUTSIDE the pressing team's own defensive third (opposition
+    frame x <= 66.6) divided by the pressing team's defensive actions outside
+    THEIR own defensive third (own frame x >= 33.4): tackles + interceptions +
+    fouls COMMITTED + challenges + blocked passes. Lower = more aggressive press.
     Source: Opta Analyst definitions.
 
 Field tilt
@@ -470,23 +469,25 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
         # "outside pressing team's defensive third" = not in pressing team's def 3rd
         # = passes that happen when the ball is at x > 33.3 (pressing team's coords)
         opp_id = away_id if team_id == home_id else home_id
+        # FIX: the zone was inverted (opp x > 33.3 in the OPPONENT's frame) and
+        # fouls WON were counted. Opponent passes outside the pressing team's
+        # defensive third = opponent-frame x <= 66.6. WhoScored logs each foul
+        # twice; only the Unsuccessful (committed) event is a defensive action.
         opp_passes_in_zone = sum(
             1 for e in events
             if e.get('type', {}).get('value') == 1
             and e.get('teamId') == opp_id
-            and _flt(e.get('x', 0)) > 33.3   # outside pressing team's defensive third
+            and e.get('x') is not None
+            and _flt(e.get('x')) <= 66.6
         )
         def_actions = sum(
             1 for e in events
             if e.get('teamId') == team_id
             and e['type']['displayName'] in
-            ('Tackle', 'Interception', 'Foul', 'Challenge')
-            and _flt(e.get('x', 0)) > 33.3
-        ) + sum(
-            1 for e in events
-            if e.get('type', {}).get('value') == 74   # BlockedPass
-            and e.get('teamId') == team_id
-            and _flt(e.get('x', 0)) > 33.3
+            ('Tackle', 'Interception', 'Foul', 'Challenge', 'BlockedPass')
+            and not (e['type']['displayName'] == 'Foul' and _acc(e))
+            and e.get('x') is not None
+            and _flt(e.get('x')) >= 33.4
         )
         ppda = round(opp_passes_in_zone / def_actions, 2) if def_actions else None
 

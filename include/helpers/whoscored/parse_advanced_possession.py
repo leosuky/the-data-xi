@@ -62,8 +62,13 @@ The Analyst, May 2025)
                         the opponent's goal (+ how many end in a shot)
   - ppda              : opposition passes outside the pressing team's own
                         defensive third / pressing team's defensive actions
-                        (fouls, tackles, interceptions, challenges, blocked
-                        passes) outside their own defensive third
+                        (fouls committed, tackles, interceptions, challenges,
+                        blocked passes) outside their own defensive third.
+                        NB WhoScored logs every foul twice (Unsuccessful =
+                        team that committed it, Successful = team fouled);
+                        only the committed one is a defensive action.
+                        This is the CANONICAL PPDA — parse_passing_advanced
+                        and parse_game_state must match it exactly.
 
 TURNOVER METRICS
 ----------------
@@ -489,8 +494,10 @@ def parse_possession_advanced(data: dict, whoscored_match_id: int) -> dict:
         x = _flt(e.get('x'), -1)
         if etype == 'Pass' and x <= FINAL_THIRD_MIN:
             opp_passes_allowed[other] += 1          # pass faced by the other side
-        if etype in _PPDA_ACTIONS and x >= DEF_THIRD_MAX:
-            def_actions[tid] += 1
+        if (etype in _PPDA_ACTIONS and x >= DEF_THIRD_MAX
+                and not (etype == 'Foul'
+                         and e.get('outcomeType', {}).get('displayName') == 'Successful')):
+            def_actions[tid] += 1               # fouls WON are not defensive actions
     ppda = {tid: round(opp_passes_allowed[tid] / def_actions[tid], 2)
             if def_actions[tid] else None for tid in (home_id, away_id)}
 
