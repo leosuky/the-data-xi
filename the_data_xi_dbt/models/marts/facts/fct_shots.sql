@@ -172,7 +172,9 @@ select
     f.event_type as fot_event_type, f.player_name as fot_player_name,
     f.is_blocked as fot_is_blocked, f.is_on_target as fot_is_on_target,
     f.is_own_goal as fot_is_own_goal,
-    w.row_id as ws_row_id,
+    -- provenance: which source shot each provider contributed (for audits/tests)
+    w.row_id as ws_row_id, w.player_uid as ws_player_uid,
+    f.player_uid as fot_player_uid, so.player_uid as sofa_player_uid,
     f.shot_id as fot_shot_id,
     -- Sofascore mapping + flags (prefixed)
     so.shot_id as sofa_shot_id, so.xg as sofa_xg, so.xgot as sofa_xgot,
