@@ -6,11 +6,16 @@
 -- WhoScored. A match exists if ANY provider has it, so a WhoScored-absent match
 -- (garbage/missing matchCentreData) still gets a row — with season/competition
 -- from Sofascore and date/scores from Fotmob — instead of vanishing from the
--- marts. Its WhoScored-derived fields (attendance, home/away team_uid resolved
--- off ws team ids) are NULL unless an FBref backfill supplied a ws_match_meta
--- row for it — in which case team_uids resolve but has_ws_events is still false
+-- marts. Its WhoScored-derived fields (attendance) are NULL. Team uids resolve
+-- off WhoScored team ids first, then fall back to the Sofascore and Fotmob team
+-- ids through int_team_xwalk, so a WhoScored-absent match still gets its teams
+-- (incl. Sofascore-anchored teams WhoScored has never seen). has_ws_events stays
+-- false for these
 -- (that flag is a real column on ws_match_meta: true for genuine event-stream
 -- loads, false for FBref-backfilled matches that lack the event texture).
+-- Status columns only exist once matches are (re)loaded with the status-aware readers.
+{% set sm_cols = adapter.get_columns_in_relation(ref('stg_sofa_matches')) | map(attribute='name') | list %}
+{% set fm_cols = adapter.get_columns_in_relation(ref('stg_fot_match'))    | map(attribute='name') | list %}
 with match_keys as (
     select combo_id from {{ ref('stg_ws_match_meta') }}
     union
@@ -21,8 +26,8 @@ with match_keys as (
 select
     k.combo_id,
     -- resolved keys
-    hx.team_uid              as home_team_uid,
-    ax.team_uid              as away_team_uid,
+    coalesce(hx.team_uid, hs.team_uid, hf.team_uid) as home_team_uid,
+    coalesce(ax.team_uid, as_.team_uid, af.team_uid) as away_team_uid,
     sm.home_manager_id       as home_coach_uid,
     sm.away_manager_id       as away_coach_uid,
     sm.referee_id            as referee_uid,
@@ -38,6 +43,14 @@ select
     f.home_font_color, f.away_font_color, f.home_font_dark, f.away_font_dark,
     f.has_shot_data, f.has_momentum_data,
     f.motm_id, f.motm_name, f.motm_rating,
+    -- Status: Sofascore type ('finished' / 'canceled' / 'postponed'), else the
+    -- Fotmob cancelled flag. Discovery skips non-played matches, so anything
+    -- other than 'finished' here is a leftover from an older load.
+    coalesce(
+        {{ cast_col_or_null(sm_cols, 'sm', 'status_type', 'text') }},
+        case when lower({{ cast_col_or_null(fm_cols, 'f', 'is_cancelled', 'text') }}) = 'true' then 'canceled' end,
+        'finished'
+    ) as match_status,
     -- Sofascore
     sm.winnercode, sm.has_shotmap, sm.has_xg,
     sm.home_formation, sm.away_formation
@@ -45,5 +58,9 @@ from match_keys k
 left join {{ ref('stg_ws_match_meta') }} w  on w.combo_id  = k.combo_id
 left join {{ ref('stg_fot_match') }}     f  on f.combo_id  = k.combo_id
 left join {{ ref('stg_sofa_matches') }}  sm on sm.combo_id = k.combo_id
-left join {{ ref('int_team_xwalk') }}    hx on hx.ws_team_id = w.home_team_id
-left join {{ ref('int_team_xwalk') }}    ax on ax.ws_team_id = w.away_team_id
+left join {{ ref('int_team_xwalk') }}    hx  on hx.ws_team_id   = w.home_team_id
+left join {{ ref('int_team_xwalk') }}    ax  on ax.ws_team_id   = w.away_team_id
+left join {{ ref('int_team_xwalk') }}    hs  on hs.sofa_team_id = sm.home_team_id
+left join {{ ref('int_team_xwalk') }}    as_ on as_.sofa_team_id = sm.away_team_id
+left join {{ ref('int_team_xwalk') }}    hf  on hf.fot_team_id  = f.home_team_id
+left join {{ ref('int_team_xwalk') }}    af  on af.fot_team_id  = f.away_team_id

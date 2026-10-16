@@ -5,6 +5,11 @@
 -- provider is ordered by its own exact key, so the Nth shot of a team aligns
 -- across providers. PROVIDER-AGNOSTIC: a shot exists if ANY provider logged it,
 -- so Fotmob/Sofascore shots still appear for a WhoScored-absent match (ws_* NULL).
+--
+-- Own goals stay on the OWN-GOALER's team row (team_uid), which is what keeps
+-- the cross-provider team_row_id alignment intact. For goals-by-team counts use
+-- credited_team_uid (the team the goal counted for), never team_uid:
+--   sum(is_goal::int) ... group by credited_team_uid
 with shot_keys as (
     select combo_id, team_uid, team_row_id from {{ ref('stg_ws_shots') }}
     union
@@ -18,6 +23,13 @@ select
     coalesce(w.player_uid, f.player_uid, so.player_uid) as player_uid,
     -- is_goal: WhoScored when present, else Fotmob's event_type = 'Goal'
     coalesce(w.is_goal, f.event_type = 'Goal')          as is_goal,
+    -- own goal: Fotmob flag, else Sofascore goaltype (WhoScored shot rows carry none)
+    coalesce(f.is_own_goal, so.goaltype = 'own', false) as is_own_goal,
+    case when coalesce(f.is_own_goal, so.goaltype = 'own', false)
+         then case when k.team_uid = dm.home_team_uid then dm.away_team_uid
+                   else dm.home_team_uid end
+         else k.team_uid
+    end                                                 as credited_team_uid,
     {{ passthrough_columns(ref('stg_ws_shots'), 'w',
          exclude=['combo_id','row_id','team_row_id','player_uid','team_uid','is_goal',
                   'x','y','goal_mouth_y','goal_mouth_z','xgot','expanded_minute']) }},

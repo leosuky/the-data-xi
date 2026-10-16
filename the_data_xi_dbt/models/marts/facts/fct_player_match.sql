@@ -6,6 +6,13 @@
 -- Identity (team_uid, name, home, starter, captain) is coalesced across
 -- providers. Stores BOTH ratings prefixed. match_rating is a dynamic sofa stat
 -- column, so reference it only if present.
+--
+-- squad_status: starter | sub_used | unused_sub | unavailable. Fotmob also lists
+-- injured/suspended players (role 'unavailable', with unavailable_type/_reason);
+-- they get a row here so availability history is queryable, but filter them out
+-- of anything that should count only matchday squads.
+-- minutes_played: Sofascore minutes; 0 for unused subs and unavailable players
+-- (Sofascore leaves those NULL); NULL only if a starter's minutes are unknown.
 {% set sps_cols = adapter.get_columns_in_relation(ref('stg_sofa_player_stats'))
                   | map(attribute='name') | list %}
 with ws as (
@@ -19,7 +26,8 @@ fot as (
            is_home_team, is_captain,
            position as fot_position, usual_position as fot_usual_position,
            position_id as fot_position_id, usual_position_id as fot_usual_position_id,
-           rating as fot_rating
+           rating as fot_rating,
+           role as fot_role, unavailable_type, unavailable_reason
     from {{ ref('stg_fot_lineups') }}
 ),
 sofa as (
@@ -45,9 +53,24 @@ select
     dm.season_uid, dm.competition_uid, dm.match_date,
     coalesce(w.player_name, f.player_name)              as player_name,
     coalesce(w.is_home_team, f.is_home_team, s.is_home_team) as is_home_team,
-    coalesce(w.is_starter, s.is_starter)                as is_starter,
+    case when f.fot_role = 'unavailable' then false
+         else coalesce(w.is_starter, s.is_starter, f.fot_role = 'starter')
+    end                                                 as is_starter,
     coalesce(w.is_captain, f.is_captain, s.is_captain)  as is_captain,
-    s.minutes_played, w.subbed_in_minute, w.subbed_out_minute,
+    case
+        when f.fot_role = 'unavailable' then 'unavailable'
+        when coalesce(w.is_starter, s.is_starter, f.fot_role = 'starter') then 'starter'
+        when coalesce(s.minutes_played, 0) > 0 or w.subbed_in_minute is not null then 'sub_used'
+        else 'unused_sub'
+    end                                                 as squad_status,
+    case
+        when s.minutes_played is not null then s.minutes_played
+        when f.fot_role = 'unavailable' then 0
+        when coalesce(w.is_starter, s.is_starter, f.fot_role = 'starter') then null
+        else 0
+    end                                                 as minutes_played,
+    f.unavailable_type, f.unavailable_reason,
+    w.subbed_in_minute, w.subbed_out_minute,
     w.ws_position, s.sofa_position, f.fot_position, f.fot_usual_position,
     f.fot_position_id, f.fot_usual_position_id,
     f.fot_rating,

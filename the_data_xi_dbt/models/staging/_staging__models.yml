@@ -1,9 +1,10 @@
 version: 2
 
 # Test severity policy:
-#   * Structural tests on the ws ANCHOR (player_uid/team_uid not_null, ws id
-#     not_null+unique) stay severity=error — if these fail the identity spine is
-#     broken and the build SHOULD halt.
+#   * Structural tests on the identity spine (uid not_null+unique, ws id unique,
+#     every row anchored on a ws OR sofa id) stay severity=error — if these fail
+#     the identity spine is broken and the build SHOULD halt. Rows with a NULL
+#     ws id are the Sofascore-anchored fallback (uid = -sofa id).
 #   * Cross-provider id-uniqueness (a sofa/fot id mapping to >1 ws player) is
 #     severity=warn for now: on messy real data a mis-resolution is possible and
 #     we want the pipeline to COMPLETE so we can inspect coverage, not halt at
@@ -11,12 +12,18 @@ version: 2
 
 models:
   - name: int_player_xwalk
-    description: "ws-anchored player identity + resolved sofa/fot ids."
+    description: "ws-anchored player identity (Sofascore fallback: uid = -sofa id) + resolved sofa/fot ids."
+    tests:
+      - dbt_utils.expression_is_true:        # every row has an anchor (error)
+          expression: "ws_player_id is not null or sofa_player_id is not null"
     columns:
       - name: player_uid
-        tests: [not_null]
+        tests: [not_null, unique]
       - name: ws_player_id
-        tests: [not_null, unique]            # anchor: one row per ws player (error)
+        tests:
+          - unique:                          # one row per ws player (error)
+              config:
+                where: "ws_player_id is not null"
       - name: sofa_player_id
         tests:
           - unique:                          # no two ws players share a sofa id
@@ -30,11 +37,18 @@ models:
                 where: "fot_player_id is not null"
                 severity: warn
   - name: int_team_xwalk
+    description: "ws-anchored team identity (Sofascore fallback: uid = -sofa id) + resolved sofa/fot ids."
+    tests:
+      - dbt_utils.expression_is_true:
+          expression: "ws_team_id is not null or sofa_team_id is not null"
     columns:
       - name: team_uid
-        tests: [not_null]
+        tests: [not_null, unique]
       - name: ws_team_id
-        tests: [not_null, unique]            # anchor (error)
+        tests:
+          - unique:
+              config:
+                where: "ws_team_id is not null"
       - name: sofa_team_id
         tests:
           - unique:

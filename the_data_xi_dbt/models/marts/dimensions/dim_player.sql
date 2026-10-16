@@ -19,11 +19,17 @@ pos as (
     where coalesce(l.position, l.usual_position) is not null
     order by l.player_uid, dm.match_date desc nulls last
 ),
--- most recent team
+-- most recent team (WhoScored lineups, plus Sofascore lineups so players in
+-- WhoScored-absent matches / Sofascore-anchored players get a team too)
 team as (
     select distinct on (l.player_uid) l.player_uid, l.team_uid
-    from {{ ref('stg_ws_lineups') }} l
+    from (
+        select player_uid, team_uid, combo_id from {{ ref('stg_ws_lineups') }}
+        union all
+        select player_uid, team_uid, combo_id from {{ ref('stg_sofa_lineups') }}
+    ) l
     join {{ ref('dim_match') }} dm on dm.combo_id = l.combo_id
+    where l.player_uid is not null and l.team_uid is not null
     order by l.player_uid, dm.match_date desc nulls last
 )
 select

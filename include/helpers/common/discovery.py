@@ -110,6 +110,25 @@ def is_valid_ws_matchcentre(data) -> bool:
     )
 
 
+# Sofascore status types that mean "no real match took place".
+_NOT_PLAYED_STATUS = {'canceled', 'postponed'}
+
+
+def _sofa_status(sf_dir: str | None) -> tuple[str | None, str | None]:
+    """(status type, description) from the Sofascore main event file, or (None, None)."""
+    if not sf_dir or not os.path.isdir(sf_dir):
+        return None, None
+    for f in os.listdir(sf_dir):
+        if f.endswith('_main_event_data.json'):
+            try:
+                with open(os.path.join(sf_dir, f), 'r', encoding='utf-8') as fp:
+                    status = (json.load(fp).get('event') or {}).get('status') or {}
+                return status.get('type'), status.get('description')
+            except Exception:
+                return None, None
+    return None, None
+
+
 def _get_loaded_combo_ids(conn, schema: str) -> set[str]:
     """Query ws_match_meta to find already-loaded combo_ids."""
     try:
@@ -164,6 +183,14 @@ def _scan_fixtures(fixtures_dir: str, competition: str | None = None,
         fm_dir = os.path.join(combo_path, 'fotmob')
         sf_dir = os.path.join(combo_path, 'sofascore')
         odds_dir = os.path.join(combo_path, 'oddspedia')
+
+        # Cancelled / abandoned / postponed matches carry no real match data
+        # (FotMob still ships a "finished 0-0" shell) — never load them.
+        st_type, st_desc = _sofa_status(sf_dir)
+        if st_type in _NOT_PLAYED_STATUS:
+            log.warning(f'{combo_id}: Sofascore status {st_type!r} ({st_desc}) — '
+                        f'not a played match, skipping')
+            continue
 
         fm_path = fm_id = None
         if os.path.isdir(fm_dir):

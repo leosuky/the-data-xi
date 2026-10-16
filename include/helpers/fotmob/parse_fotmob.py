@@ -192,6 +192,7 @@ def _parse_match(data: dict, fotmob_id: int, combo_id: str) -> list[dict]:
         'away_font_dark':    _safe_get(colors, 'fontDarkMode', 'away'),
         'has_shot_data':     has_shot_data,
         'has_momentum_data': has_momentum,
+        'is_cancelled':      _safe_get(header, 'status', 'cancelled'),
     }]
 
 

@@ -260,7 +260,15 @@ def match_details(
         'fanRatingEvent', 'seasonStatisticsType', 'showTotoPromo', 'isEditor', 'eventFilters', 'eventState'
     ]
 
+    # Match status: 'finished' normally; 'canceled' (abandoned/cancelled) or
+    # 'postponed' otherwise. Kept explicitly because 'status' itself is dropped
+    # below with the other nested blocks.
+    status = event['event'].get('status') or {}
+
     match_data = {
+        "status_type": status.get('type'),
+        "status_description": status.get('description'),
+        "status_code": status.get('code'),
         "tournament_id": tournament_id,
         "season_id": season_id,
         "combo_id": combo_id,

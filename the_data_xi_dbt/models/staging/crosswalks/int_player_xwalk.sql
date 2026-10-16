@@ -16,6 +16,12 @@
 
   Reads raw lineups via source() (NOT the stg_*_lineups views) on purpose:
   the stg lineup views attach player_uid, which would create a cycle.
+
+  Fallback: a player WhoScored has never seen (e.g. every Saudi Pro League
+  player) is anchored on his Sofascore id instead: player_uid = -sofa_player_id
+  (negative, so it can never collide with a WhoScored id), ws_player_id NULL,
+  and his Fotmob id resolved against Sofascore with the same three tiers.
+  Existing ws-anchored uids never move.
 */
 
 with ws as (
@@ -55,7 +61,22 @@ joined as (
     from ws_universe u
     left join vote_sofa s on s.ws_id=u.ws_id and s.rn=1
     left join vote_fot  f on f.ws_id=u.ws_id and f.rn=1
-)
+),
+
+-- ── Sofascore fallback anchor: players with no WhoScored mapping ─────────────
+-- Same CTE shape as `ws`, so the resolution macro runs against it unchanged.
+sa as (
+    select combo_id, is_home_team, shirt_number, prov_id as ws_id, nname
+    from sofa
+    where prov_id not in (select sofa_player_id from joined where sofa_player_id is not null)
+),
+fot_left as (
+    select * from fot
+    where prov_id not in (select fot_player_id from joined where fot_player_id is not null)
+),
+{{ xwalk_resolve_provider('fot_left', anchor='sa') }},
+
+sofa_only as (select distinct ws_id as sofa_id from sa)
 
 select
     coalesce(a.canonical_ws_id, j.ws_player_id) as player_uid,
@@ -64,3 +85,13 @@ select
     j.fot_player_id
 from joined j
 left join {{ ref('player_alias') }} a on a.bad_ws_id = j.ws_player_id
+
+union all
+
+select
+    -so.sofa_id     as player_uid,
+    null::bigint    as ws_player_id,
+    so.sofa_id      as sofa_player_id,
+    v.prov_id       as fot_player_id
+from sofa_only so
+left join sa_vote_fot_left v on v.ws_id = so.sofa_id and v.rn = 1

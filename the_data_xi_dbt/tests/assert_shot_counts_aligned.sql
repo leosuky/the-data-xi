@@ -1,6 +1,7 @@
 -- Shot-count reconciler, now PER TEAM. Flags a (match, team) where a provider's
 -- shot count disagrees with WhoScored (only when that provider has shots for the
--- team, so a missing provider doesn't fire). Team-based alignment depends on
+-- team, so a missing provider doesn't fire); for WhoScored-absent matches it
+-- compares Fotmob against Sofascore instead. Team-based alignment depends on
 -- equal per-team counts, so this is the precise tripwire for membership drift
 -- (e.g. a provider booking an own goal to a different team). severity=warn.
 {{ config(severity='warn') }}
@@ -18,5 +19,7 @@ with c as (
     group by combo_id, team_uid
 )
 select * from c
-where (fot_n  > 0 and ws_n <> fot_n)
-   or (sofa_n > 0 and ws_n <> sofa_n)
+where (ws_n > 0 and fot_n  > 0 and ws_n <> fot_n)
+   or (ws_n > 0 and sofa_n > 0 and ws_n <> sofa_n)
+   -- WhoScored-absent match (e.g. Saudi): reconcile the other two providers
+   or (ws_n = 0 and fot_n > 0 and sofa_n > 0 and fot_n <> sofa_n)
