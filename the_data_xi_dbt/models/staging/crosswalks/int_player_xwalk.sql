@@ -54,13 +54,27 @@ fot as (
 
 ws_universe as (select distinct ws_id from ws),
 
-joined as (
+joined_raw as (
     select u.ws_id as ws_player_id,
-           s.prov_id as sofa_player_id,
-           f.prov_id as fot_player_id
+           s.prov_id as sofa_player_id, s.n as sofa_n,
+           f.prov_id as fot_player_id,  f.n as fot_n
     from ws_universe u
     left join vote_sofa s on s.ws_id=u.ws_id and s.rn=1
     left join vote_fot  f on f.ws_id=u.ws_id and f.rn=1
+),
+-- A provider id may be claimed by only ONE player: when two ws players vote
+-- for the same Sofascore/Fotmob id, the pairing seen in more matches keeps it
+-- and the other gets NULL. Duplicates fan out every join on that id
+-- (e.g. one Fotmob shot becoming two fct_shots rows).
+joined as (
+    select ws_player_id,
+           case when row_number() over (partition by sofa_player_id
+                                        order by sofa_n desc, ws_player_id) = 1
+                then sofa_player_id end as sofa_player_id,
+           case when row_number() over (partition by fot_player_id
+                                        order by fot_n desc, ws_player_id) = 1
+                then fot_player_id end  as fot_player_id
+    from joined_raw
 ),
 
 -- ── Sofascore fallback anchor: players with no WhoScored mapping ─────────────
@@ -92,6 +106,8 @@ select
     -so.sofa_id     as player_uid,
     null::bigint    as ws_player_id,
     so.sofa_id      as sofa_player_id,
-    v.prov_id       as fot_player_id
+    case when v.prov_id is not null
+          and row_number() over (partition by v.prov_id order by v.n desc, so.sofa_id) = 1
+         then v.prov_id end as fot_player_id
 from sofa_only so
 left join sa_vote_fot_left v on v.ws_id = so.sofa_id and v.rn = 1

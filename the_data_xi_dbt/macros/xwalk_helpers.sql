@@ -1,7 +1,7 @@
 {# Emit the exact->elimination->name resolution + voting CTEs for one provider.
    Expects an anchor CTE (default `ws`; cols: combo_id,is_home_team,shirt_number,ws_id,nname)
    and a CTE named <prov> (cols: combo_id,is_home_team,shirt_number,prov_id,nname)
-   to already exist in the model. Produces vote_<prov>(ws_id,prov_id,rn) — or
+   to already exist in the model. Produces vote_<prov>(ws_id,prov_id,n,rn) — or
    <anchor>_vote_<prov> when a non-default anchor is passed (so a model can
    resolve against a second anchor, e.g. Sofascore-only players, without CTE
    name clashes). The anchor's id column is always called ws_id. #}
@@ -52,7 +52,7 @@
         union all select ws_id, prov_id from {{pfx}}name_{{prov}}
     ),
     {{pfx}}vote_{{prov}} as (
-        select ws_id, prov_id,
+        select ws_id, prov_id, count(*) as n,
                row_number() over (partition by ws_id order by count(*) desc, prov_id) rn
         from {{pfx}}obs_{{prov}} group by ws_id, prov_id
     )
