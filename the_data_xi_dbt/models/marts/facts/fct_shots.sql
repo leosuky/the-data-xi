@@ -1,4 +1,9 @@
-{{ config(materialized='table') }}
+{{ config(materialized='table', pre_hook="set local enable_nestloop = off") }}
+-- enable_nestloop off (this model's transaction only): Postgres estimates the
+-- candidate CTEs at ~1 row (really ~130k; it multiplies the match/team/player/
+-- time-window selectivities as if independent) and then picks nested-loop anti
+-- joins -> ~16 min on PG17. Every join here is keyed or per-match, so hash/merge
+-- is always right. With it: ~17 s, identical output.
 -- One row per shot. Providers are matched SHOT-BY-SHOT on content, not by
 -- position: the old "Nth shot of a team" alignment broke whenever providers
 -- logged different shots, or Fotmob's shot_id wasn't chronological (it can add
@@ -35,6 +40,29 @@ sofa as (
     select *, coalesce(timeseconds / 60.0, time + coalesce(addedtime, 0) - 0.5) as t
     from {{ ref('stg_sofa_shots') }}
 ),
+-- WhoScored shot rows carry no own-goal flag, but its context events do.
+-- Pair each player's goal SHOTS with his goal EVENTS (goal / penalty_goal /
+-- own_goal) in chronological order: the k-th goal shot is the k-th goal event.
+-- That handles a player scoring at both ends in one match. Only used when
+-- neither Fotmob nor Sofascore has the shot (e.g. 2018/19 WhoScored-only matches).
+ws_goal_events as (
+    select combo_id, player_uid, event_type,
+           row_number() over (partition by combo_id, player_uid order by time_s, minute, second) as rk
+    from {{ ref('stg_ws_context_events') }}
+    where event_type in ('goal', 'penalty_goal', 'own_goal')
+),
+ws_goal_shots as (
+    select combo_id, row_id, player_uid,
+           row_number() over (partition by combo_id, player_uid order by minute, second, row_id) as rk
+    from {{ ref('stg_ws_shots') }}
+    where is_goal
+),
+ws_own_goal as (
+    select gs.combo_id, gs.row_id
+    from ws_goal_shots gs
+    join ws_goal_events ge using (combo_id, player_uid, rk)
+    where ge.event_type = 'own_goal'
+),
 
 -- ---------------- WhoScored <-> Fotmob ----------------
 cand_wf as (
@@ -57,7 +85,8 @@ wf2 as (
         select c.*, row_number() over (partition by combo_id, a order by score, b) as ra,
                     row_number() over (partition by combo_id, b order by score, a) as rb
         from cand_wf c
-        where not exists (select 1 from wf1 m where m.combo_id = c.combo_id and (m.a = c.a or m.b = c.b))) x
+        where not exists (select 1 from wf1 m where m.combo_id = c.combo_id and m.a = c.a)
+          and not exists (select 1 from wf1 m where m.combo_id = c.combo_id and m.b = c.b)) x
     where ra = 1 and rb = 1
 ),
 m_wf as (select * from wf1 union all select * from wf2),
@@ -85,7 +114,8 @@ fs2 as (
         select c.*, row_number() over (partition by combo_id, a order by score, b) as ra,
                     row_number() over (partition by combo_id, b order by score, a) as rb
         from cand_fs c
-        where not exists (select 1 from fs1 m where m.combo_id = c.combo_id and (m.a = c.a or m.b = c.b))) x
+        where not exists (select 1 from fs1 m where m.combo_id = c.combo_id and m.a = c.a)
+          and not exists (select 1 from fs1 m where m.combo_id = c.combo_id and m.b = c.b)) x
     where ra = 1 and rb = 1
 ),
 m_fs as (select * from fs1 union all select * from fs2),
@@ -149,9 +179,9 @@ select
     coalesce(w.player_uid, f.player_uid, so.player_uid) as player_uid,
     -- is_goal: WhoScored when present, else Fotmob's event_type, else Sofascore
     coalesce(w.is_goal, f.event_type = 'Goal', so.shottype = 'goal') as is_goal,
-    -- own goal: Fotmob flag, else Sofascore goaltype (WhoScored shot rows carry none)
-    coalesce(f.is_own_goal, so.goaltype = 'own', false) as is_own_goal,
-    case when coalesce(f.is_own_goal, so.goaltype = 'own', false)
+    -- own goal: Fotmob flag, else Sofascore goaltype, else WhoScored context events
+    coalesce(f.is_own_goal, so.goaltype = 'own', og.row_id is not null, false) as is_own_goal,
+    case when coalesce(f.is_own_goal, so.goaltype = 'own', og.row_id is not null, false)
          then case when k.team_uid = dm.home_team_uid then dm.away_team_uid
                    else dm.home_team_uid end
          else k.team_uid
@@ -184,4 +214,5 @@ from keyed k
 left join ws   w  on w.combo_id  = k.combo_id and w.row_id   = k.ws_row_id
 left join fot  f  on f.combo_id  = k.combo_id and f.shot_id  = k.fot_shot_id
 left join sofa so on so.combo_id = k.combo_id and so.shot_id = k.sofa_shot_id
+left join ws_own_goal og on og.combo_id = k.combo_id and og.row_id = k.ws_row_id
 left join {{ ref('dim_match') }} dm on dm.combo_id = k.combo_id
