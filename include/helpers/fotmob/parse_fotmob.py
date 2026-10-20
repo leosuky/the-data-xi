@@ -126,11 +126,14 @@ def _get_position_label(position_id: int | None, y_coord: float | None = None) -
 
 
 def _safe_get(d: dict, *keys, default=None):
-    """Safely traverse nested dicts."""
+    """Safely traverse nested dicts. A key that is present but null counts as
+    missing (Fotmob sends e.g. "playerStats": null for some older matches)."""
     for k in keys:
         if not isinstance(d, dict):
             return default
-        d = d.get(k, default)
+        d = d.get(k)
+        if d is None:
+            return default
     return d
 
 

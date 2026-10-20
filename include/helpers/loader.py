@@ -399,10 +399,21 @@ def _load_sofascore(cur, sf_dir, combo_id, schema):
         log.error('Cannot import read_json_data')
         return 0
 
+    def is_error_stub(path):
+        # Sofascore saves its API error body when a resource doesn't exist,
+        # e.g. {"error": {"code": 404, ...}} for awarded matches. Treat as missing.
+        try:
+            with open(path, 'r', encoding='utf-8') as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            return False
+        return isinstance(data, dict) and set(data) == {'error'}
+
     def find_sofa(pattern):
         for f in os.listdir(sf_dir):
             if pattern in f and f.endswith('.json'):
-                return os.path.join(sf_dir, f)
+                path = os.path.join(sf_dir, f)
+                return None if is_error_stub(path) else path
         return None
 
     # Find all Sofascore files
