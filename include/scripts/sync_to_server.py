@@ -45,12 +45,25 @@ from pathlib import Path
 #  CONFIG — edit these, then run:  python sync_to_server.py
 # ══════════════════════════════════════════════════════════════════════════════
 
-SOURCE_DIR  = r"C:\Users\Leosuky\Desktop\Code\Scraper\Done"   # local scraper output
+# SOURCE_DIR  = r"C:\Users\Leosuky\Desktop\Code\Scraper\Done"   # local scraper output
+SOURCE_DIR = r"D:\Consolidated_fixtures\data"
 SSH_HOST    = "dataxi"                                         # Host alias in ~/.ssh/config
 REMOTE_DIR  = "~/the-data-xi/data"                             # server raw-data folder
 
-COMPETITIONS = None        # e.g. ["Premier_League", "UCL"]; None = all
-SEASONS      = None        # e.g. ["2026_2027"]; None = all
+# COMPETITIONS = None        # e.g. ["Premier_League", "UCL"]; None = all
+# SEASONS      = None        # e.g. ["2026_2027"]; None = all
+
+COMPETITIONS = ["Serie_A"]
+SEASONS = [
+    # "2018_2019",
+    # "2019_2020",
+    "2020_2021",
+    "2021_2022",
+    # "2022_2023",
+    # "2023_2024",
+    # "2024_2025",
+    # "2025_2026",
+]
 
 # ════════════════════════════════════════════════════════════════════════════════
 

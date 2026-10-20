@@ -144,15 +144,24 @@ def _get_loaded_combo_ids(conn, schema: str) -> set[str]:
 
 
 def _scan_fixtures(fixtures_dir: str, competition: str | None = None,
-                   season: str | None = None) -> list[dict]:
+                   season: str | None = None,
+                   skip_ids: set[str] | None = None) -> list[dict]:
     """
     Pure filesystem scan of ONE season folder: build a descriptor for every
     loadable match folder (valid WhoScored and/or any other provider). No DB
     access. Returns descriptors sorted by combo_id.
+
+    skip_ids: combo_ids to skip WITHOUT opening any of their files (the
+    already-loaded matches). Validating a match means parsing its ~2.5 MB
+    WhoScored JSON, so scanning only the unloaded folders keeps discovery
+    proportional to new data instead of everything ever loaded.
     """
     discovered = []
+    skip_ids = skip_ids or set()
 
     for combo_id in sorted(os.listdir(fixtures_dir)):
+        if combo_id in skip_ids:
+            continue
         combo_path = os.path.join(fixtures_dir, combo_id)
         if not os.path.isdir(combo_path):
             continue
@@ -273,9 +282,15 @@ def discover_unloaded_matches(
     season_dirs = find_season_dirs(fixtures_dir, competitions, seasons)
     log.info(f'Scanning {len(season_dirs)} season folder(s) under {fixtures_dir}')
 
+    # DB diff FIRST, so already-loaded folders are never opened (see _scan_fixtures).
+    loaded_ids = set() if force_reload else _get_loaded_combo_ids(conn, schema)
+    if not force_reload:
+        log.info(f'{len(loaded_ids)} already loaded in {schema}.ws_match_meta '
+                 f'(their folders are skipped unopened)')
+
     all_matches, seen = [], {}
     for comp, season, path in season_dirs:
-        found = _scan_fixtures(path, comp, season)
+        found = _scan_fixtures(path, comp, season, skip_ids=loaded_ids)
         log.info(f'  {comp or "-"}/{season or os.path.basename(path)}: '
                  f'{len(found)} match folders')
         for m in found:
@@ -295,16 +310,12 @@ def discover_unloaded_matches(
         if missing:
             log.warning(f'combo_ids not found on disk: {sorted(missing)}')
 
-    log.info(f'{len(all_matches)} valid match folders on disk')
-
+    selected = all_matches
     if force_reload:
-        selected = all_matches
-        log.info(f'force_reload=True → reprocessing all {len(selected)} matches '
-                 f'(DB diff skipped)')
+        log.info(f'force_reload=True → reprocessing all {len(selected)} valid '
+                 f'match folders on disk (DB diff skipped)')
     else:
-        loaded_ids = _get_loaded_combo_ids(conn, schema)
-        log.info(f'{len(loaded_ids)} already loaded in {schema}.ws_match_meta')
-        selected = [m for m in all_matches if m['combo_id'] not in loaded_ids]
+        log.info(f'{len(selected)} valid unloaded match folders on disk')
 
     log.info(
         f'Selected {len(selected)} matches to load '
