@@ -208,20 +208,21 @@ def managers(filepath: str) -> dict:
     with open(filepath, 'r', encoding='utf-8') as file:
         managers = json.load(file)
 
-    managers['homeManager'].pop("fieldTranslations", None)
-    managers['awayManager'].pop("fieldTranslations", None)
+    # A side can have no manager listed (e.g. Valladolid at Las Palmas,
+    # 2024-12-07, between coaches) -> that side's manager_id stays NULL.
+    home = managers.get('homeManager') or {}
+    away = managers.get('awayManager') or {}
+    for m in (home, away):
+        m.pop("fieldTranslations", None)
 
-    managers_df = pd.DataFrame([
-        managers['homeManager'],
-        managers['awayManager']
-    ])
+    managers_df = pd.DataFrame([m for m in (home, away) if m])
     time_i = datetime.now(timezone.utc)
     managers_df['ingested_at'] = time_i
 
     data = {
         "managers": managers_df,
-        "home_manager_id": managers['homeManager']["id"],
-        "away_manager_id": managers['awayManager']["id"]
+        "home_manager_id": home.get("id"),
+        "away_manager_id": away.get("id")
     }
 
     return data
