@@ -209,15 +209,16 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
 
     sequences = _build_sequences(events, home_id, away_id)
 
-    # Index events by eventId for assist chain lookups
-    event_by_id = {e.get('eventId'): e for e in events}
+    # WhoScored numbers events per TEAM: the same eventId exists for both sides
+    # (~600 per match), so every lookup is keyed by (teamId, eventId).
+    event_by_id = {(e.get('teamId'), e.get('eventId')): e for e in events}
 
     # ── Identify base passes with receiver ────────────────────────────────────
     # Build a lookup: sequence events per (team, sequence_index)
     seq_lookup = {}
     for i, seq in enumerate(sequences):
         for e in seq['events']:
-            seq_lookup[e.get('eventId')] = (seq['team'], i)
+            seq_lookup[(e.get('teamId'), e.get('eventId'))] = (seq['team'], i)
 
     # Build pass rows enriched with receiver
     base_pass_rows = []
@@ -304,7 +305,7 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
                 and _has_qid(e, 29)):          # Assisted qualifier
             rel_id = _get(e, 'RelatedEventId')
             if rel_id:
-                assist_event_ids.add(int(float(rel_id)))
+                assist_event_ids.add((e.get('teamId'), int(float(rel_id))))
 
     # ── Team-level metrics ─────────────────────────────────────────────────────
     team_rows = []
@@ -373,7 +374,7 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
             if e.get('teamId') == team_id
             and e.get('type', {}).get('value') in (1, 61)
             and _has(e, 'KeyPass')
-            and e.get('eventId') not in assist_event_ids
+            and (e.get('teamId'), e.get('eventId')) not in assist_event_ids
         )
         assists = sum(
             1 for e in events
@@ -393,7 +394,7 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
             if e.get('teamId') == team_id
             and e.get('type', {}).get('value') in (1, 61)
             and _has(e, 'KeyPass')
-            and e.get('eventId') not in assist_event_ids
+            and (e.get('teamId'), e.get('eventId')) not in assist_event_ids
             and _is_open_play_event(e)
         )
         assists_open_play = sum(
@@ -401,7 +402,7 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
             if e['type']['displayName'] == 'Goal'
             and e.get('teamId') == team_id
             and _has_qid(e, 29)
-            and (lambda rel: _is_open_play_event(event_by_id.get(int(float(rel)), {}))
+            and (lambda rel: _is_open_play_event(event_by_id.get((team_id, int(float(rel))), {}))
                  if rel else False)(_get(e, 'RelatedEventId'))
         )
         chances_created_open_play = key_passes_open_play + assists_open_play
@@ -603,7 +604,7 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
             and e.get('playerId') == player_id
             and e.get('type', {}).get('value') in (1, 61)
             and _has(e, 'KeyPass')
-            and e.get('eventId') not in assist_event_ids
+            and (e.get('teamId'), e.get('eventId')) not in assist_event_ids
         )
         # Player assists — resolve via RelatedEventId on Goal events
         player_assists = 0
@@ -613,7 +614,7 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
                     and _has_qid(e, 29)):
                 rel_id = _get(e, 'RelatedEventId')
                 if rel_id:
-                    assist_evt = event_by_id.get(int(float(rel_id)))
+                    assist_evt = event_by_id.get((team_id, int(float(rel_id))))
                     if assist_evt and assist_evt.get('playerId') == player_id:
                         player_assists += 1
 

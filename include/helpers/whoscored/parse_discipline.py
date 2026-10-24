@@ -93,7 +93,9 @@ def parse_discipline(data: dict, whoscored_match_id: int) -> dict:
     away_id = data['away']['teamId']
     names   = data.get('playerIdNameDictionary', {})
 
-    event_by_id = {e.get('eventId'): e for e in events}
+    # WhoScored numbers events per TEAM: the same eventId exists for both sides
+    # (~600 per match), so every lookup is keyed by (teamId, eventId).
+    event_by_id = {(e.get('teamId'), e.get('eventId')): e for e in events}
 
     # ── Card rows (raw, one per card event) ────────────────────────────────────
     card_rows = []
@@ -112,7 +114,7 @@ def parse_discipline(data: dict, whoscored_match_id: int) -> dict:
 
         # Link back to the foul that caused the card
         rel_val    = _get_qid_val(c, 55)
-        foul_event = event_by_id.get(int(float(rel_val))) if rel_val else None
+        foul_event = event_by_id.get((tid, int(float(rel_val)))) if rel_val else None
         foul_x     = _flt(foul_event.get('x')) if foul_event else None
         foul_y     = _flt(foul_event.get('y')) if foul_event else None
 

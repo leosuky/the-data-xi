@@ -89,8 +89,9 @@ def parse_passing(data: dict, whoscored_match_id: int) -> dict:
     home_id  = data['home']['teamId']
     away_id  = data['away']['teamId']
 
-    # Index all events by eventId for assist resolution
-    event_by_id = {e.get('eventId'): e for e in events}
+    # WhoScored numbers events per TEAM: the same eventId exists for both sides
+    # (~600 per match), so every lookup is keyed by (teamId, eventId).
+    event_by_id = {(e.get('teamId'), e.get('eventId')): e for e in events}
 
     # Sort events by time once — used for sequence building
     sorted_events = sorted(
@@ -179,7 +180,7 @@ def parse_passing(data: dict, whoscored_match_id: int) -> dict:
                     and _has_qid(e, 29)):                   # Assisted qualifier
                 rel_id = _get_qid_val(e, 55)               # RelatedEventId = QID 55
                 if rel_id:
-                    assist_event = event_by_id.get(int(float(rel_id)))
+                    assist_event = event_by_id.get((team_id, int(float(rel_id))))
                     if assist_event and assist_event.get('teamId') == team_id:
                         assists += 1
 
@@ -325,7 +326,7 @@ def parse_passing(data: dict, whoscored_match_id: int) -> dict:
                     and _has_qid(e, 29)):
                 rel_id = _get_qid_val(e, 55)
                 if rel_id:
-                    assist_evt = event_by_id.get(int(float(rel_id)))
+                    assist_evt = event_by_id.get((team_id, int(float(rel_id))))
                     if assist_evt and assist_evt.get('playerId') == player_id:
                         p_assists += 1
 

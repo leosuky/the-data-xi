@@ -513,17 +513,19 @@ def parse_game_state(data: dict, whoscored_match_id: int) -> dict:
     # points via RelatedEventId (QID 55) to the assisting pass/touch. We tag
     # the ASSIST at the assisting event's time/state (consistent with where
     # the creative action happened). Matches parse_passing assist logic.
-    event_by_id = {e.get('eventId'): e for e in events}
-    assist_event_ids = set()
+    # WhoScored numbers events per TEAM: the same eventId exists for both sides
+    # (~600 per match), so every lookup is keyed by (teamId, eventId).
+    event_by_id = {(e.get('teamId'), e.get('eventId')): e for e in events}
+    assist_event_ids = set()   # (teamId, eventId) of assisting events
     for e in events:
         if (e['type']['displayName'] == 'Goal'
                 and e.get('teamId') in (home_id, away_id)
                 and _has_qid(e, 29)):
             rel = _qid_val(e, 55)
             if rel is not None:
-                ae = event_by_id.get(int(float(rel)))
+                ae = event_by_id.get((e.get('teamId'), int(float(rel))))
                 if ae and ae.get('teamId') == e.get('teamId'):
-                    assist_event_ids.add(ae.get('eventId'))
+                    assist_event_ids.add((ae.get('teamId'), ae.get('eventId')))
 
     for e in events:
         tid = e.get('teamId')
@@ -599,7 +601,7 @@ def parse_game_state(data: dict, whoscored_match_id: int) -> dict:
 
         # ── Chance creation (KeyPass on Pass OR BallTouch; no base filter) ──
         if tval in (1, 61) and 'KeyPass' in q:
-            if e.get('eventId') not in assist_event_ids:   # Opta: KP excludes assists
+            if (tid, e.get('eventId')) not in assist_event_ids:   # Opta: KP excludes assists
                 a['key_passes'] += 1
                 if _is_open_play_pass_event(e):
                     a['key_passes_open_play'] += 1
@@ -609,7 +611,7 @@ def parse_game_state(data: dict, whoscored_match_id: int) -> dict:
             if _is_open_play_pass_event(e):
                 a['big_chances_created_open_play'] += 1
         # Assists: tagged at the assisting event
-        if e.get('eventId') in assist_event_ids:
+        if (tid, e.get('eventId')) in assist_event_ids:
             a['assists'] += 1
 
         if (etype in _PPDA_ACTIONS and x >= DEF_THIRD_MAX
