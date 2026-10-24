@@ -159,3 +159,27 @@ command) and `logs/dbt.log`.
 ```bash
 crontab -l        # see scheduled jobs (backups, closing-odds snapshots)
 ```
+
+---
+
+## 8. Re-parse every season after a parser change
+
+`reload_parsers.py` does what the `the_data_xi_selective_reload` DAG does,
+but over every competition and season in one run (4 matches at a time,
+resumable, failures listed at the end). Run it in tmux; it takes hours for
+the full warehouse.
+
+```bash
+S=$(docker ps --format '{{.Names}}' | grep -m1 scheduler)
+
+# what would run (counts per competition/season), loads nothing
+docker exec -it $S python /usr/local/airflow/include/scripts/reload_parsers.py \
+  --parsers passing,passing_advanced,discipline,game_state --dry-run
+
+# the real thing (same command without --dry-run); re-run it to resume
+docker exec -it $S python /usr/local/airflow/include/scripts/reload_parsers.py \
+  --parsers passing,passing_advanced,discipline,game_state
+```
+
+Narrow it with `--competitions Premier_League` or `--seasons 2025_2026`.
+When it finishes, trigger `the_data_xi_dbt` once to rebuild the marts.
