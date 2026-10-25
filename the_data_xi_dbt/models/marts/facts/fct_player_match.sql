@@ -15,6 +15,8 @@
 -- (Sofascore leaves those NULL); NULL only if a starter's minutes are unknown.
 {% set sps_cols = adapter.get_columns_in_relation(ref('stg_sofa_player_stats'))
                   | map(attribute='name') | list %}
+{% set fps_cols = adapter.get_columns_in_relation(ref('stg_fot_player_stats'))
+                  | map(attribute='name') | list %}
 with ws as (
     select combo_id, player_uid, team_uid, player_name, is_home_team,
            is_starter, is_captain, position as ws_position,
@@ -39,6 +41,14 @@ sofa_rating as (
     select combo_id, player_uid,
            {% if 'match_rating' in sps_cols %}match_rating{% else %}null::numeric{% endif %} as sofa_rating
     from {{ ref('stg_sofa_player_stats') }}
+),
+fot_stats as (
+    -- Fotmob per-match player stats not available from WhoScored events
+    select combo_id, player_uid,
+           {% if 'expected_assists' in fps_cols %}max(expected_assists::numeric){% else %}null::numeric{% endif %} as expected_assists
+    from {{ ref('stg_fot_player_stats') }}
+    where player_uid is not null
+    group by combo_id, player_uid
 ),
 keys as (
     select combo_id, player_uid from ws   where player_uid is not null
@@ -74,10 +84,12 @@ select
     w.ws_position, s.sofa_position, f.fot_position, f.fot_usual_position,
     f.fot_position_id, f.fot_usual_position_id,
     f.fot_rating,
-    sr.sofa_rating
+    sr.sofa_rating,
+    fs.expected_assists                                 -- xA (Fotmob)
 from keys k
 left join ws          w  on w.combo_id  = k.combo_id and w.player_uid  = k.player_uid
 left join fot         f  on f.combo_id  = k.combo_id and f.player_uid  = k.player_uid
 left join sofa        s  on s.combo_id  = k.combo_id and s.player_uid  = k.player_uid
 left join sofa_rating sr on sr.combo_id = k.combo_id and sr.player_uid = k.player_uid
+left join fot_stats   fs on fs.combo_id = k.combo_id and fs.player_uid = k.player_uid
 left join {{ ref('dim_match') }} dm on dm.combo_id = k.combo_id

@@ -6,7 +6,8 @@
 -- WhoScored. A match exists if ANY provider has it, so a WhoScored-absent match
 -- (garbage/missing matchCentreData) still gets a row — with season/competition
 -- from Sofascore and date/scores from Fotmob — instead of vanishing from the
--- marts. Its WhoScored-derived fields (attendance) are NULL. Team uids resolve
+-- marts. Its WhoScored-only fields are NULL (attendance falls back to Fotmob /
+-- Sofascore, see below). Team uids resolve
 -- off WhoScored team ids first, then fall back to the Sofascore and Fotmob team
 -- ids through int_team_xwalk, so a WhoScored-absent match still gets its teams
 -- (incl. Sofascore-anchored teams WhoScored has never seen). has_ws_events stays
@@ -14,8 +15,13 @@
 -- (that flag is a real column on ws_match_meta: true for genuine event-stream
 -- loads, false for FBref-backfilled matches that lack the event texture).
 -- Status columns only exist once matches are (re)loaded with the status-aware readers.
+-- attendance: WhoScored first, but WhoScored sometimes stores 0 for a crowd it
+-- didn't record, so a 0 falls through to Fotmob, then Sofascore. A real 0
+-- (behind-closed-doors games) survives because all three then agree on 0.
 {% set sm_cols = adapter.get_columns_in_relation(ref('stg_sofa_matches')) | map(attribute='name') | list %}
 {% set fm_cols = adapter.get_columns_in_relation(ref('stg_fot_match'))    | map(attribute='name') | list %}
+{% set att_fm = "nullif(f.attendance::text, '')::int" if 'attendance' in fm_cols else 'null::int' %}
+{% set att_sm = "nullif(sm.attendance::text, '')::int" if 'attendance' in sm_cols else 'null::int' %}
 with match_keys as (
     select combo_id from {{ ref('stg_ws_match_meta') }}
     union
@@ -33,8 +39,13 @@ select
     sm.referee_id            as referee_uid,
     sm.tournament_id         as competition_uid,
     sm.season_id             as season_uid,
-    -- WhoScored
-    w.attendance,
+    -- attendance: first non-zero of WhoScored / Fotmob / Sofascore, else 0
+    coalesce(
+        nullif(w.attendance, 0),
+        nullif({{ att_fm }}, 0),
+        nullif({{ att_sm }}, 0),
+        w.attendance, {{ att_fm }}, {{ att_sm }}
+    ) as attendance,
     coalesce(w.has_ws_events, false) as has_ws_events,
     -- Fotmob
     f.match_round, f.home_score, f.away_score, f.match_date,

@@ -10,10 +10,10 @@ Tackle        Successful or unsuccessful challenge that connects with the ball.
               Defensive qualifier = in own half / tracking back.
               Offensive qualifier = pressing high in opp half.
 
-Challenge     ALWAYS unsuccessful — the attacker beat this player.
-              WhoScored's "tacklesTotal" stat = Tackle + Challenge combined.
-              Reported separately here as "dribbled_past" but included in
-              tackles_total to match the industry standard count.
+Challenge     ALWAYS unsuccessful — the attacker beat this player (dribbled
+              past). NOT a tackle: tackles_total = Tackle events only, as
+              FotMob/Opta count it (verified 100% per player-match vs FotMob,
+              2026/27 PL/LaLiga/Serie A). Challenges still feed ground duels.
 
 Interception  Player reads a pass and moves into its line.
               Head qualifier present on headed interceptions.
@@ -42,19 +42,23 @@ Dispossessed  Attacker loses the ball under pressure.
 ShieldBallOpp Player shields ball from opponent.
 OffsideProvoked Defender successfully caught attacker offside (offside trap).
 
-CLEARANCES DEFINITION
----------------------
-Clearance events excluding goalkeeper player IDs.
-Opta/Sofascore exclude GK clearances from the outfield clearance count —
-goalkeepers have their own stat bucket (KeeperSweeper, saves etc.).
-Verified: Spurs 15 raw events → 14 excluding Vicario ✅ matches Opta/Sofa.
+CLEARANCES DEFINITION (FotMob/Opta)
+-----------------------------------
+clearances = Clearance events WITHOUT the BlockedCross qualifier + Punch events,
+for every player including goalkeepers (FotMob counts a keeper's punches as
+clearances). Blocked crosses are counted separately (clearances_blocked_cross).
+Verified 7,173 player-matches vs FotMob (2026/27 PL/LaLiga/Serie A).
 
-BALL RECOVERIES DEFINITION
---------------------------
-ball_recoveries = BallRecovery events + Interception events + KeeperSweeper events
-Sofascore "recoveries" = any event securing possession from a loose/contested ball.
-Interceptions and KeeperSweeper both meet that definition.
-Verified: Spurs BallRecovery(39) + Interception(7) + KeeperSweeper(2) = 48 ✅
+BALL RECOVERIES DEFINITION (FotMob/Opta)
+----------------------------------------
+ball_recoveries = BallRecovery + KeeperPickup + successful Claim events.
+Interceptions are their own stat (not recoveries). Verified 99.9% per
+player-match vs FotMob.
+
+BLOCKS (FotMob "Blocks")
+------------------------
+blocked_shots = Save events with qualifier 94 (an outfield player blocking a
+shot), team and player alike. Verified 100% per player-match vs FotMob.
 
 AERIALS NOTE
 ------------
@@ -152,6 +156,7 @@ def _aggregate(
     fouls:        list,
     smothers:     list,
     errors:       list,             # Error events (type 51): leading to shot or goal
+    blocked_crosses: list,          # Clearance events with BlockedCross (not clearances)
     game_ground_duels:      int,
     game_aerial_duels:      int,
     ground_duels_won_param: int,
@@ -166,13 +171,13 @@ def _aggregate(
     tack_lost   = [e for e in tackles if not _acc(e)]
     tack_def    = sum(1 for e in tackles if _has(e, 'Defensive'))
     tack_off    = sum(1 for e in tackles if _has(e, 'Offensive'))
-    # tackles_total matches WS stats field: Tackle + Challenge events
-    tack_total  = len(tackles) + len(challenges)
+    # tackles_total = Tackle events only (FotMob/Opta); challenges are dribbled-past
+    tack_total  = len(tackles)
     tack_won_n  = len(tack_won)
     tack_succ_pct = round(tack_won_n / tack_total * 100, 2) if tack_total else None
 
     # Tackle zone distribution
-    all_tack_evs = tackles + challenges
+    all_tack_evs = tackles
     def _z(e): return _zone(_flt(e.get('x', 50)))
     tack_own  = sum(1 for e in all_tack_evs if _z(e) == 'own_third')
     tack_mid  = sum(1 for e in all_tack_evs if _z(e) == 'middle_third')
@@ -194,7 +199,7 @@ def _aggregate(
 
     # ── 3. Clearances ─────────────────────────────────────────────────────────
     clear_head  = sum(1 for e in clearances if _has(e, 'Head'))
-    clear_cross = sum(1 for e in clearances if _has(e, 'BlockedCross'))
+    clear_cross = len(blocked_crosses)
     # Clearances in own box (x ≤ 17 — the 18-yard box extends to ~17 in 0-100 scale)
     clear_box   = sum(1 for e in clearances if _flt(e.get('x', 50)) <= 17)
     # Average clearance distance (Length qualifier, metres)
@@ -429,7 +434,7 @@ def parse_defending(data: dict, whoscored_match_id: int) -> dict:
     away_id = data['away']['teamId']
     names   = data.get('playerIdNameDictionary', {})
 
-    # GK player IDs — excluded from clearances, added to ball recoveries
+    # GK player IDs — GKs always get a player row
     gk_ids = {
         p['playerId']
         for side in ('home', 'away')
@@ -510,25 +515,21 @@ def parse_defending(data: dict, whoscored_match_id: int) -> dict:
     team_stats = []
     for team_id in (home_id, away_id):
         opp_id = away_id if team_id == home_id else home_id
-        opp_blocked_shots = [
-            e for e in events
-            if e.get('teamId') == opp_id
-            and e['type']['displayName'] == 'SavedShot'
-            and _has_qid(e, 82)
-        ]
+        team_blocks = [e for e in _filter(team_id, 'Save') if _has_qid(e, 94)]
         gd_won = home_gd_won if team_id == home_id else away_gd_won
         stat = _aggregate(
             tackles                = _filter(team_id, 'Tackle'),
             challenges             = _filter(team_id, 'Challenge'),
             interceptions          = _filter(team_id, 'Interception'),
-            clearances             = [e for e in _filter(team_id, 'Clearance')
-                                      if e.get('playerId') not in gk_ids],
+            clearances             = ([e for e in _filter(team_id, 'Clearance')
+                                       if not _has(e, 'BlockedCross')]
+                                      + _filter(team_id, 'Punch')),
             aerials                = _filter(team_id, 'Aerial'),
             recoveries             = (_filter(team_id, 'BallRecovery')
-                                      + _filter(team_id, 'Interception')
-                                      + _filter(team_id, 'KeeperSweeper')),
+                                      + _filter(team_id, 'KeeperPickup')
+                                      + [e for e in _filter(team_id, 'Claim') if _acc(e)]),
             blocked                = _filter(team_id, 'BlockedPass'),
-            blocked_shots          = opp_blocked_shots,
+            blocked_shots          = team_blocks,
             dispossessed           = _filter(team_id, 'Dispossessed'),
             shields                = _filter(team_id, 'ShieldBallOpp'),
             offside_prov           = _filter(team_id, 'OffsideProvoked'),
@@ -536,6 +537,8 @@ def parse_defending(data: dict, whoscored_match_id: int) -> dict:
             fouls                  = _filter(team_id, 'Foul'),
             smothers               = _filter(team_id, 'KeeperSweeper'),
             errors                 = _filter(team_id, 'Error'),
+            blocked_crosses        = [e for e in _filter(team_id, 'Clearance')
+                                      if _has(e, 'BlockedCross')],
             game_ground_duels      = game_ground_duels,
             game_aerial_duels      = game_aerial_duels,
             ground_duels_won_param = gd_won,
@@ -554,7 +557,7 @@ def parse_defending(data: dict, whoscored_match_id: int) -> dict:
         'Tackle', 'Challenge', 'Interception', 'Clearance',
         'Aerial', 'BallRecovery', 'BlockedPass', 'Dispossessed',
         'ShieldBallOpp', 'OffsideProvoked', 'KeeperSweeper', 'TakeOn',
-        'Foul', 'Error',
+        'Foul', 'Error', 'Save', 'Punch', 'KeeperPickup', 'Claim',
     }
     player_ids = {
         (e.get('teamId'), e.get('playerId'))
@@ -581,14 +584,15 @@ def parse_defending(data: dict, whoscored_match_id: int) -> dict:
             tackles                = _pfilter('Tackle'),
             challenges             = _pfilter('Challenge'),
             interceptions          = _pfilter('Interception'),
-            clearances             = [e for e in _pfilter('Clearance')
-                                      if e.get('playerId') not in gk_ids],
+            clearances             = ([e for e in _pfilter('Clearance')
+                                       if not _has(e, 'BlockedCross')]
+                                      + _pfilter('Punch')),
             aerials                = _pfilter('Aerial'),
             recoveries             = (_pfilter('BallRecovery')
-                                      + _pfilter('Interception')
-                                      + _pfilter('KeeperSweeper')),
+                                      + _pfilter('KeeperPickup')
+                                      + [e for e in _pfilter('Claim') if _acc(e)]),
             blocked                = _pfilter('BlockedPass'),
-            blocked_shots          = [],
+            blocked_shots          = [e for e in _pfilter('Save') if _has_qid(e, 94)],
             dispossessed           = _pfilter('Dispossessed'),
             shields                = _pfilter('ShieldBallOpp'),
             offside_prov           = _pfilter('OffsideProvoked'),
@@ -596,6 +600,8 @@ def parse_defending(data: dict, whoscored_match_id: int) -> dict:
             fouls                  = _pfilter('Foul'),
             smothers               = _pfilter('KeeperSweeper'),
             errors                 = _pfilter('Error'),
+            blocked_crosses        = [e for e in _pfilter('Clearance')
+                                      if _has(e, 'BlockedCross')],
             game_ground_duels      = 0,
             game_aerial_duels      = 0,
             ground_duels_won_param = 0,

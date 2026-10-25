@@ -20,9 +20,10 @@ Corner deliveries
     so they are excluded from base_passes. Tracked independently.
 
 Key passes
-    KeyPass qualifier on ANY event type (Pass or BallTouch). No exclusion
-    filter — a cross or corner delivery that leads to a shot is still a key
-    pass. Verified: Man City 16 = 14 Pass + 2 BallTouch.
+    KeyPass qualifier on ANY event type — Pass and BallTouch mostly, but also
+    Tackle, Clearance, Interception, shots and others (Opta counts them all).
+    Includes the assisting event (it carries KeyPass too), so key_passes here
+    = FotMob "chances created". Verified 100% per player-match vs FotMob.
 
 Assists
     Goal events with Assisted qualifier (QID 29). Follow RelatedEventId to the
@@ -31,7 +32,8 @@ Assists
     resolved (Aké BallTouch + De Bruyne Pass).
 
 Big chances created
-    BigChanceCreated qualifier on Pass events. No exclusion filter.
+    BigChanceCreated qualifier on ANY event type (Pass, BallTouch, shots,
+    clearances...). Verified 99.9% per player-match vs FotMob.
 
 All stats from raw events only. No pre-recorded stats fields used.
 Player-level and derived/advanced stats omitted for now — team stats first.
@@ -164,11 +166,10 @@ def parse_passing(data: dict, whoscored_match_id: int) -> dict:
 
         # ── 5. Chance creation (ALL pass events, no exclusion filter) ─────────
 
-        # Key passes — KeyPass qualifier on Pass OR BallTouch events
+        # Key passes — KeyPass qualifier on ANY event type
         key_passes = sum(
             1 for e in events
             if e.get('teamId') == team_id
-            and e.get('type', {}).get('value') in (1, 61)  # Pass or BallTouch
             and _has(e, 'KeyPass')
         )
 
@@ -189,9 +190,7 @@ def parse_passing(data: dict, whoscored_match_id: int) -> dict:
         big_chances_created = sum(
             1 for e in events
             if e.get('teamId') == team_id
-            and e.get('type', {}).get('value') == 1
-            and _has(e, 'BigChanceCreated')
-            # No exclusion filter here — intentional
+            and _has(e, 'BigChanceCreated')     # any event type
         )
 
         # ── 6. Spatial (final third) ──────────────────────────────────────────
@@ -311,11 +310,10 @@ def parse_passing(data: dict, whoscored_match_id: int) -> dict:
         lb      = [p for p in p_base if _has(p, 'Longball')]
         lb_acc  = sum(1 for p in lb if _acc(p))
 
-        # Key passes (all pass + touch events, no exclusion)
+        # Key passes (KeyPass on any event type, assists included)
         kp = sum(1 for e in events
                  if e.get('teamId') == team_id
                  and e.get('playerId') == player_id
-                 and e.get('type',{}).get('value') in (1, 61)
                  and _has(e, 'KeyPass'))
 
         # Assists via RelatedEventId on goals
@@ -330,8 +328,11 @@ def parse_passing(data: dict, whoscored_match_id: int) -> dict:
                     if assist_evt and assist_evt.get('playerId') == player_id:
                         p_assists += 1
 
-        # Big chances created
-        bcc = sum(1 for p in p_all if _has(p, 'BigChanceCreated'))
+        # Big chances created (any event type)
+        bcc = sum(1 for e in events
+                  if e.get('teamId') == team_id
+                  and e.get('playerId') == player_id
+                  and _has(e, 'BigChanceCreated'))
 
         # Crosses
         p_crosses     = [p for p in p_all if _has_qid(p, 2)]

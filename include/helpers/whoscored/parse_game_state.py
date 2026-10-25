@@ -599,14 +599,14 @@ def parse_game_state(data: dict, whoscored_match_id: int) -> dict:
             if x <= FINAL_THIRD_MIN:
                 agg[okey]['ppda_passes_faced'] += 1
 
-        # ── Chance creation (KeyPass on Pass OR BallTouch; no base filter) ──
-        if tval in (1, 61) and 'KeyPass' in q:
+        # ── Chance creation (KeyPass on ANY event type; Opta/FotMob) ──
+        if 'KeyPass' in q:
             if (tid, e.get('eventId')) not in assist_event_ids:   # Opta: KP excludes assists
                 a['key_passes'] += 1
                 if _is_open_play_pass_event(e):
                     a['key_passes_open_play'] += 1
-        # big_chances_created: BigChanceCreated qualifier on Pass events only
-        if tval == 1 and 'BigChanceCreated' in q:
+        # big_chances_created: BigChanceCreated qualifier on ANY event type
+        if 'BigChanceCreated' in q:
             a['big_chances_created'] += 1
             if _is_open_play_pass_event(e):
                 a['big_chances_created_open_play'] += 1

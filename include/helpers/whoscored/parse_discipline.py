@@ -15,7 +15,15 @@ Foul (type 4)
     QID 13=Foul         — physical contact foul (vs technical violation)
 
 Card (type 6)
-    QID 31=Yellow, QID 32=Red, QID 33=SecondYellow
+    Card type from e['cardType']['displayName'] (Yellow / SecondYellow / Red);
+    fallback QID 31=Yellow, QID 32=SecondYellow, QID 33=Red (verified on the
+    raw data: 32 is the second yellow, 33 the straight red).
+
+    Counting convention (FotMob, verified 98.8% of team-matches):
+      * team totals count every card, including unused subs and staff;
+        player rows get every card shown to a player (staff have no player)
+      * a two-yellow red counts as a red (second_yellow_cards also +1) and the
+        FIRST yellow of that pair is not counted as a yellow card
     QID 55=RelatedEventId → links to the Foul event that caused the card
     Card x/y = location of the card-giving incident.
 
@@ -105,12 +113,11 @@ def parse_discipline(data: dict, whoscored_match_id: int) -> dict:
         tid  = c.get('teamId')
         if tid not in (home_id, away_id): continue
 
-        is_yellow  = _has_qid(c, 31)
-        is_red     = _has_qid(c, 32)
-        is_2nd_y   = _has_qid(c, 33)
-        card_type  = ('SecondYellow' if is_2nd_y
-                      else 'Red' if is_red
-                      else 'Yellow' if is_yellow else 'Unknown')
+        card_type  = c.get('cardType', {}).get('displayName')
+        if card_type not in ('Yellow', 'SecondYellow', 'Red'):
+            card_type = ('SecondYellow' if _has_qid(c, 32)
+                         else 'Red' if _has_qid(c, 33)
+                         else 'Yellow' if _has_qid(c, 31) else 'Unknown')
 
         # Link back to the foul that caused the card
         rel_val    = _get_qid_val(c, 55)
@@ -165,19 +172,8 @@ def parse_discipline(data: dict, whoscored_match_id: int) -> dict:
             'goals_disallowed_offside': 0,
         }
 
-    # Foul events
-    for e in events:
-        if e['type']['displayName'] != 'Foul': continue
-        tid = e.get('teamId')
-        if tid not in (home_id, away_id): continue
-        pid = e.get('playerId')
-
-        x   = _flt(e.get('x', 50))
-        zone = _zone(x)
-        is_committed = not _acc(e)   # Unsuccessful = committed
-        is_won       = _acc(e)       # Successful   = won
-
-        # Ensure player exists in player_stats
+    def _ensure_player(tid, pid):
+        """Player row on first sight — from a foul, a card or an offside."""
         key = (tid, pid)
         if key not in player_stats and pid:
             player_stats[key] = {
@@ -193,6 +189,22 @@ def parse_discipline(data: dict, whoscored_match_id: int) -> dict:
                 'yellow_cards': 0, 'red_cards': 0, 'second_yellow_cards': 0,
                 'offsides_committed': 0,
             }
+        return player_stats.get(key)
+
+    # Foul events
+    for e in events:
+        if e['type']['displayName'] != 'Foul': continue
+        tid = e.get('teamId')
+        if tid not in (home_id, away_id): continue
+        pid = e.get('playerId')
+
+        x   = _flt(e.get('x', 50))
+        zone = _zone(x)
+        is_committed = not _acc(e)   # Unsuccessful = committed
+        is_won       = _acc(e)       # Successful   = won
+
+        key = (tid, pid)
+        _ensure_player(tid, pid)
 
         t = team_stats[tid]
         p = player_stats.get(key)
@@ -228,28 +240,31 @@ def parse_discipline(data: dict, whoscored_match_id: int) -> dict:
             t['fouls_won']   += 1
             if p: p['fouls_won'] += 1
 
-    # Card events
+    # Card events — every card counts for the team; players get their own
     for c in card_rows:
         tid = c['team_id']
         pid = c['player_id']
-        key = (tid, pid)
-        t   = team_stats[tid]
+        t = team_stats[tid]
+        p = _ensure_player(tid, pid)
 
         if c['card_type'] == 'Yellow':
-            t['yellow_cards']       += 1
+            t['yellow_cards'] += 1
+            if p: p['yellow_cards'] += 1
         elif c['card_type'] == 'Red':
-            t['red_cards']          += 1
+            t['red_cards'] += 1
+            if p: p['red_cards'] += 1
         elif c['card_type'] == 'SecondYellow':
+            # second yellow = red; its first yellow is not counted (FotMob)
             t['second_yellow_cards'] += 1
-            t['red_cards']          += 1   # second yellow = effective red
-
-        if key in player_stats:
-            p = player_stats[key]
-            if c['card_type'] == 'Yellow':       p['yellow_cards']        += 1
-            elif c['card_type'] == 'Red':        p['red_cards']           += 1
-            elif c['card_type'] == 'SecondYellow':
-                p['second_yellow_cards'] = p.get('second_yellow_cards', 0) + 1
+            t['red_cards']           += 1
+            t['yellow_cards']        -= 1
+            if p:
+                p['second_yellow_cards'] += 1
                 p['red_cards']           += 1
+                p['yellow_cards']        -= 1
+
+    for row in list(team_stats.values()) + list(player_stats.values()):
+        row['yellow_cards'] = max(row['yellow_cards'], 0)
 
     # Offside events
     for e in events:
@@ -262,8 +277,8 @@ def parse_discipline(data: dict, whoscored_match_id: int) -> dict:
         if etype == 'OffsideGiven':
             # Player from THIS team was caught offside
             t['offsides_committed'] += 1
-            key = (tid, pid)
-            if key in player_stats: player_stats[key]['offsides_committed'] += 1
+            p = _ensure_player(tid, pid)
+            if p: p['offsides_committed'] += 1
 
         elif etype == 'OffsidePass':
             # Supplementary event — the pass that led to an offside.

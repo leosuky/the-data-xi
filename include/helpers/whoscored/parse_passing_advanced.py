@@ -24,8 +24,9 @@ Penalty area pass
     A COMPLETED pass where end_x >= 83 AND 21 <= end_y <= 79.
 
 Key pass (Opta)
-    A pass or touch (KeyPass qualifier on Pass or BallTouch events) that
-    leads directly to a shot that does NOT result in a goal. Excludes
+    Any event carrying the KeyPass qualifier (passes and touches mostly, but
+    Opta also tags tackles, clearances, shots...) that leads directly to a
+    shot that does NOT result in a goal. Excludes
     the touch/pass that directly preceded a goal (that is the assist).
     Chance Created = Key Passes + Assists.
 
@@ -368,11 +369,10 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
         xt_per_pass = round(xt_total / n, 6) if n else None
 
         # 3. Key passes (Opta: leads to shot NOT a goal)
-        #    KeyPass qualifier on Pass or BallTouch, excluding assist events
+        #    KeyPass qualifier on any event type, excluding assist events
         key_passes_opta = sum(
             1 for e in events
             if e.get('teamId') == team_id
-            and e.get('type', {}).get('value') in (1, 61)
             and _has(e, 'KeyPass')
             and (e.get('teamId'), e.get('eventId')) not in assist_event_ids
         )
@@ -392,7 +392,6 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
         key_passes_open_play = sum(
             1 for e in events
             if e.get('teamId') == team_id
-            and e.get('type', {}).get('value') in (1, 61)
             and _has(e, 'KeyPass')
             and (e.get('teamId'), e.get('eventId')) not in assist_event_ids
             and _is_open_play_event(e)
@@ -410,13 +409,11 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
         big_chances_created_all = sum(
             1 for e in events
             if e.get('teamId') == team_id
-            and e.get('type', {}).get('value') == 1
             and _has(e, 'BigChanceCreated')
         )
         big_chances_created_open_play = sum(
             1 for e in events
             if e.get('teamId') == team_id
-            and e.get('type', {}).get('value') == 1
             and _has(e, 'BigChanceCreated')
             and _is_open_play_event(e)
         )
@@ -602,7 +599,6 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
             1 for e in events
             if e.get('teamId') == team_id
             and e.get('playerId') == player_id
-            and e.get('type', {}).get('value') in (1, 61)
             and _has(e, 'KeyPass')
             and (e.get('teamId'), e.get('eventId')) not in assist_event_ids
         )

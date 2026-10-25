@@ -16,9 +16,14 @@ they never carry isShot=True and are counted separately in parse_passing.py.
 
 OUTCOME DEFINITIONS
 -------------------
-Total shots      = isShot=True events
-Shots on target  = Goal + SavedShot WITHOUT Blocked qualifier (QID 82)
-Blocked shots    = SavedShot WITH Blocked qualifier (QID 82)
+Total shots      = isShot=True events, EXCEPT own goals (OwnGoal, QID 28):
+                   an own goal is neither a shot nor a goal for the player who
+                   put it in his own net (FotMob/Opta). Own-goal rows stay in
+                   the per-shot table (row_id alignment) with is_goal False.
+Shots on target  = Goal + SavedShot WITHOUT Blocked (QID 82), plus blocked
+                   shots SAVED OFF THE LINE (SavedOffline, QID 101) — FotMob
+                   counts those on target. Verified 100% per player-match.
+Blocked shots    = SavedShot WITH Blocked (QID 82) and not saved off the line
                    An outfield player blocked it; keeper was not beaten.
 Shots off target = MissedShots + ShotOnPost
                    Shots hitting the woodwork are off target per Opta.
@@ -53,6 +58,8 @@ SHOT_TYPES = {16, 15, 14, 13}   # Goal, SavedShot, ShotOnPost, MissedShots
 
 # Blocked qualifier — SavedShot WITH this = blocked shot (not SoT)
 QID_BLOCKED = 82
+QID_SAVED_OFFLINE = 101   # blocked shot cleared off the line: counts on target
+QID_OWN_GOAL = 28
 
 # Set-piece pattern qualifiers on shots
 # These are different from the pass dead ball QIDs used in parse_passing.py
@@ -270,15 +277,17 @@ def _acc(event) -> bool:
 def _is_blocked_shot(event) -> bool:
     """SavedShot with Blocked qualifier = outfield block = not SoT."""
     return (event['type']['displayName'] == 'SavedShot'
-            and _has_qid(event, QID_BLOCKED))
+            and _has_qid(event, QID_BLOCKED)
+            and not _has_qid(event, QID_SAVED_OFFLINE))
 
 
 def _is_sot(event) -> bool:
     """True if this shot is on target (goal or genuine save)."""
     t = event['type']['displayName']
     if t == 'Goal':
-        return True
-    if t == 'SavedShot' and not _has_qid(event, QID_BLOCKED):
+        return not _has_qid(event, QID_OWN_GOAL)
+    if t == 'SavedShot' and (not _has_qid(event, QID_BLOCKED)
+                             or _has_qid(event, QID_SAVED_OFFLINE)):
         return True
     return False
 
@@ -356,7 +365,7 @@ def _shot_row(event, match_id: int, names: dict) -> dict:
     y = _flt(event.get('y', 50))
     etype = event['type']['displayName']
 
-    is_goal    = etype == 'Goal'
+    is_goal    = etype == 'Goal' and not _has_qid(event, QID_OWN_GOAL)
     is_sot     = _is_sot(event)
     is_blocked = _is_blocked_shot(event)
     is_off     = etype in ('MissedShots', 'ShotOnPost')
@@ -604,10 +613,15 @@ def parse_shooting(data: dict, whoscored_match_id: int) -> dict:
             row[f'{slot}_player_name'] = None
             row[f'{slot}_type'] = None
 
+    # Own goals stay in the per-shot table but never count as shots or goals.
+    own_goal_rows = {id(r) for e, r in zip(shot_events, shot_rows)
+                     if _has_qid(e, QID_OWN_GOAL)}
+    stat_rows = [r for r in shot_rows if id(r) not in own_goal_rows]
+
     # ── Team-level ─────────────────────────────────────────────────────────────
     team_stats = []
     for team_id in (home_id, away_id):
-        rows = [r for r in shot_rows if r['team_id'] == team_id]
+        rows = [r for r in stat_rows if r['team_id'] == team_id]
         stat = _aggregate(rows, whoscored_match_id, team_id, None, None)
         if stat:
             _attach_sca_totals(stat, rows)
@@ -615,7 +629,7 @@ def parse_shooting(data: dict, whoscored_match_id: int) -> dict:
 
     # ── Player-level ───────────────────────────────────────────────────────────
     player_map = defaultdict(list)
-    for r in shot_rows:
+    for r in stat_rows:
         if r['player_id']:
             player_map[(r['team_id'], r['player_id'])].append(r)
     # ensure players who only have SCA credit (no shots) still get a row
