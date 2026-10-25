@@ -55,7 +55,7 @@ ws_goal_shots as (
     select combo_id, row_id, player_uid,
            row_number() over (partition by combo_id, player_uid order by minute, second, row_id) as rk
     from {{ ref('stg_ws_shots') }}
-    where is_goal
+    where is_goal_scored          -- own goals included: they pair with own_goal events
 ),
 ws_own_goal as (
     select gs.combo_id, gs.row_id
@@ -68,7 +68,7 @@ ws_own_goal as (
 cand_wf as (
     select w.combo_id, w.row_id as a, f.shot_id as b,
            abs(w.t - f.t)
-             + case when w.is_goal is distinct from (f.event_type = 'Goal') then 3 else 0 end as score
+             + case when w.is_goal_scored is distinct from (f.event_type = 'Goal') then 3 else 0 end as score
     from ws w
     join fot f on f.combo_id = w.combo_id and f.team_uid = w.team_uid
               and f.player_uid = w.player_uid and abs(w.t - f.t) <= 2.5
@@ -177,17 +177,21 @@ select
     k.combo_id || '-' || k.team_uid || '-' || k.team_row_id as shot_uid,
     k.combo_id, k.team_uid, k.team_row_id,
     coalesce(w.player_uid, f.player_uid, so.player_uid) as player_uid,
-    -- is_goal: WhoScored when present, else Fotmob's event_type, else Sofascore
-    coalesce(w.is_goal, f.event_type = 'Goal', so.shottype = 'goal') as is_goal,
-    -- own goal: Fotmob flag, else Sofascore goaltype, else WhoScored context events
-    coalesce(f.is_own_goal, so.goaltype = 'own', og.row_id is not null, false) as is_own_goal,
-    case when coalesce(f.is_own_goal, so.goaltype = 'own', og.row_id is not null, false)
+    -- is_goal: the ball went in (own goals included; use credited_team_uid).
+    -- WhoScored when present, else Fotmob's event_type, else Sofascore
+    coalesce(w.is_goal_scored, f.event_type = 'Goal', so.shottype = 'goal') as is_goal,
+    -- own goal: Fotmob flag, else Sofascore goaltype, else WhoScored (shot row or context events)
+    coalesce(f.is_own_goal, so.goaltype = 'own',
+             og.row_id is not null or coalesce(w.is_own_goal, false), false) as is_own_goal,
+    case when coalesce(f.is_own_goal, so.goaltype = 'own',
+                       og.row_id is not null or coalesce(w.is_own_goal, false), false)
          then case when k.team_uid = dm.home_team_uid then dm.away_team_uid
                    else dm.home_team_uid end
          else k.team_uid
     end                                                 as credited_team_uid,
     {{ passthrough_columns(ref('stg_ws_shots'), 'w',
          exclude=['combo_id','row_id','team_row_id','player_uid','team_uid','is_goal',
+                  'is_own_goal','is_goal_scored',
                   'x','y','goal_mouth_y','goal_mouth_z','xgot','expanded_minute']) }},
     -- WhoScored coordinates (prefixed)
     w.x as ws_x, w.y as ws_y, w.goal_mouth_y as ws_goal_mouth_y, w.goal_mouth_z as ws_goal_mouth_z,

@@ -45,4 +45,4 @@ models:
       facts:
         +materialized: table        # full-refresh; volumes are modest (<10M rows), reloads handled for free
       aggregates:
-        +materialized: view         # season rollups recompute on read
+        +materialized: table        # season rollups: a view took ~6 s per read in the app

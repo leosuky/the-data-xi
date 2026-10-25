@@ -1,4 +1,3 @@
-{{ config(materialized='view') }}
 -- Per-(player, competition, season): totals -> per-90 -> percentile ranks.
 -- Metric set is a representative starter; extend by adding sums + per90 + ranks.
 with base as (
