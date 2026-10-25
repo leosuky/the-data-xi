@@ -88,6 +88,12 @@ def _push_table(cur, table, rows, conflict_cols, schema, combo_id,
     Push a list of row dicts to a RAW table.
     Wrapped in a SAVEPOINT so a single table failure doesn't
     abort the entire provider transaction.
+
+    delete_first=True clears the match's rows before inserting, so a re-parse
+    fully replaces them. Without it the push is an upsert: rows the new parse
+    no longer emits, and columns it no longer sets, keep their old values.
+    Every WhoScored per-match table uses it (the match is always re-parsed
+    whole per parser).
     """
     if not rows:
         return 0
@@ -241,11 +247,13 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema, parsers=None):
         lineup_result = parse_lineups(ws_data, ws_id, combo_id)
 
         rows = [remap_row(r, combo_id) for r in lineup_result.get('player', [])]
-        total += _push_table(cur, 'ws_lineups', rows, ['combo_id', 'player_id'], schema, combo_id)
+        total += _push_table(cur, 'ws_lineups', rows, ['combo_id', 'player_id'], schema, combo_id,
+                             delete_first=True)
 
         rows = [remap_row(r, combo_id) for r in lineup_result.get('formations', [])]
         total += _push_table(cur, 'ws_formations', rows,
-                             ['combo_id', 'team_id', 'formation_index'], schema, combo_id)
+                             ['combo_id', 'team_id', 'formation_index'], schema, combo_id,
+                             delete_first=True)
 
     # ── Team + player stats from parsers ──────────────────────────────
     stat_parsers = [
@@ -273,7 +281,8 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema, parsers=None):
                     r.pop('player_id', None)
                     r.pop('player_name', None)
                 total += _push_table(cur, team_table, rows,
-                                     ['combo_id', 'team_id'], schema, combo_id)
+                                     ['combo_id', 'team_id'], schema, combo_id,
+                                     delete_first=True)
 
             if player_table and player_key and result.get(player_key):
                 rows = [remap_row(r, combo_id) for r in result[player_key]]
@@ -283,7 +292,8 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema, parsers=None):
                         r.pop('xgot', None)
                         r.pop('psxg_minus_ga', None)
                 total += _push_table(cur, player_table, rows,
-                                     ['combo_id', 'player_id'], schema, combo_id)
+                                     ['combo_id', 'player_id'], schema, combo_id,
+                                     delete_first=True)
 
             # Special: sequences
             if result.get('sequences'):
@@ -308,13 +318,15 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema, parsers=None):
                 rows = [{**remap_row(r, combo_id), 'whoscored_match_id': ws_id}
                         for r in result['pass_network']]
                 total += _push_table(cur, 'ws_pass_network', rows,
-                                     ['combo_id', 'passer_id', 'receiver_id'], schema, combo_id)
+                                     ['combo_id', 'passer_id', 'receiver_id'], schema, combo_id,
+                                     delete_first=True)
 
             if result.get('player_positions'):
                 rows = [{**remap_row(r, combo_id), 'whoscored_match_id': ws_id}
                         for r in result['player_positions']]
                 total += _push_table(cur, 'ws_avg_positions', rows,
-                                     ['combo_id', 'player_id'], schema, combo_id)
+                                     ['combo_id', 'player_id'], schema, combo_id,
+                                     delete_first=True)
 
         except Exception as e:
             log.error(f'  WS parser {name} failed: {e}')
@@ -723,4 +735,4 @@ def load_match(match_descriptor: dict, conn, schema: str = 'raw',
     if failures:
         raise RuntimeError(
             f'[{combo_id}] {len(failures)} provider(s) failed: {", ".join(failures)}'
-        )
+        )
