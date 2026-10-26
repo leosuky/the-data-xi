@@ -991,6 +991,32 @@ CREATE TABLE IF NOT EXISTS ws_pass_network (
     UNIQUE (combo_id, passer_id, receiver_id)
 );
 
+-- ── Defensive actions (one row per defensive event, for maps) ─────────────────
+-- Written by parse_defending; delete+insert per combo_id. eventIds repeat per
+-- team, so (combo_id, team_id, event_id) identifies an event.
+
+CREATE TABLE IF NOT EXISTS ws_defensive_actions (
+    id                      BIGSERIAL PRIMARY KEY,
+    whoscored_match_id      INTEGER NOT NULL,
+    combo_id                TEXT NOT NULL,
+    event_id                INTEGER,
+    team_id                 INTEGER,
+    player_id               INTEGER,
+    player_name             TEXT,
+    period                  TEXT,
+    minute                  INTEGER,
+    second                  INTEGER,
+    x                       NUMERIC(5,1),
+    y                       NUMERIC(5,1),
+    end_x                   NUMERIC(5,1),
+    end_y                   NUMERIC(5,1),
+    action                  TEXT,
+    is_successful           BOOLEAN,
+    is_header               BOOLEAN
+);
+CREATE INDEX IF NOT EXISTS idx_ws_defensive_actions_combo
+    ON ws_defensive_actions (combo_id);
+
 -- ── Average positions ────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS ws_avg_positions (

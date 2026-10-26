@@ -10,6 +10,7 @@ sources:
       - name: ws_player_carries
       - name: ws_team_carries
       - name: ws_context_events
+      - name: ws_defensive_actions
       - name: ws_formations
       - name: ws_game_states
       - name: ws_lineups

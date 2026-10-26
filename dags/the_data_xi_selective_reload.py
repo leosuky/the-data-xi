@@ -69,7 +69,8 @@ TARGET_SCHEMA = 'raw'
             description=(
                 'Which WhoScored units to re-run. Only applies when whoscored is '
                 'selected above. Side-tables ride with their parent: shooting '
-                'also rewrites ws_shots; passing also rewrites ws_pass_map / '
+                'also rewrites ws_shots; defending also rewrites '
+                'ws_defensive_actions; passing also rewrites ws_pass_map / '
                 'ws_pass_network / ws_avg_positions; possession_advanced also '
                 'rewrites ws_sequences.'
             ),

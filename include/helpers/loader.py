@@ -328,6 +328,12 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema, parsers=None):
                                      ['combo_id', 'player_id'], schema, combo_id,
                                      delete_first=True)
 
+            # Special: per-event defensive actions (maps) from parse_defending
+            if result.get('actions'):
+                rows = [remap_row(r, combo_id) for r in result['actions']]
+                total += _push_table(cur, 'ws_defensive_actions', rows, [], schema,
+                                     combo_id, delete_first=True)
+
         except Exception as e:
             log.error(f'  WS parser {name} failed: {e}')
 

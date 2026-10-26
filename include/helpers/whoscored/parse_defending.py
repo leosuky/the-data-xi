@@ -93,6 +93,30 @@ Own third:    x ≤ 33.3   (low block)
 Middle third: 33.3 < x ≤ 66.6
 Final third:  x > 66.6   (high press)
 
+ACTIONS (event-level, for maps)
+-------------------------------
+parse_defending also returns 'actions': one row per defensive event, with its
+x/y (WhoScored 0-100, from the acting team's attacking direction), so a map's
+dots add up to the stats above:
+    tackle          Tackle                         -> tackles_total
+    interception    Interception                   -> interceptions
+    clearance       Clearance without BlockedCross -> clearances
+    punch           Punch                          -> clearances
+    blocked_cross   Clearance with BlockedCross    -> clearances_blocked_cross
+    shot_block      Save with qualifier 94         -> blocked_shots
+    blocked_pass    BlockedPass                    -> blocked_passes
+    ball_recovery   BallRecovery                   -> ball_recoveries
+    keeper_pickup   KeeperPickup                   -> ball_recoveries
+    claim           Claim (successful ones)        -> ball_recoveries
+    aerial          Aerial, won or lost            -> aerials_total / _won
+    challenge       Challenge (dribbled past)      -> dribbled_past
+    foul            Foul committed                 -> fouls_conceded
+    save            Save without qualifier 94 (goalkeeper save)
+    keeper_sweeper  KeeperSweeper
+    error           Error
+is_successful = the event's outcome (tackle won, aerial won, claim held...).
+Keyed by (team_id, event_id): WhoScored eventIds repeat per team.
+
 UNITS
 -----
 Clearance distance: metres (Length qualifier is in metres, same as passes).
@@ -419,14 +443,65 @@ def _aggregate(
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
+def _action_kind(event) -> str | None:
+    """The map action an event is, or None if it isn't a defensive action."""
+    t = event['type']['displayName']
+    if t == 'Clearance':
+        return 'blocked_cross' if _has(event, 'BlockedCross') else 'clearance'
+    if t == 'Save':
+        return 'shot_block' if _has_qid(event, 94) else 'save'
+    if t == 'Foul':
+        return None if _acc(event) else 'foul'   # successful = fouled player
+    return {
+        'Tackle': 'tackle', 'Interception': 'interception', 'Punch': 'punch',
+        'BlockedPass': 'blocked_pass', 'BallRecovery': 'ball_recovery',
+        'KeeperPickup': 'keeper_pickup', 'Claim': 'claim', 'Aerial': 'aerial',
+        'Challenge': 'challenge', 'KeeperSweeper': 'keeper_sweeper',
+        'Error': 'error',
+    }.get(t)
+
+
+def _action_rows(events: list, team_ids: tuple, names: dict,
+                 match_id: int) -> list:
+    """One row per defensive event, for maps (see ACTIONS in the docstring)."""
+    rows = []
+    for e in events:
+        if e.get('teamId') not in team_ids:
+            continue
+        kind = _action_kind(e)
+        if kind is None:
+            continue
+        pid = e.get('playerId')
+        end_x, end_y = _get(e, 'PassEndX'), _get(e, 'PassEndY')
+        rows.append({
+            'whoscored_match_id': match_id,
+            'event_id':           e.get('eventId'),
+            'team_id':            e.get('teamId'),
+            'player_id':          pid,
+            'player_name':        names.get(str(pid)) if pid else None,
+            'period':             (e.get('period') or {}).get('displayName'),
+            'minute':             e.get('minute'),
+            'second':             e.get('second'),
+            'x':                  _flt(e.get('x'), None),
+            'y':                  _flt(e.get('y'), None),
+            'end_x':              _flt(end_x, None) if end_x is not None else None,
+            'end_y':              _flt(end_y, None) if end_y is not None else None,
+            'action':             kind,
+            'is_successful':      _acc(e),
+            'is_header':          _has(e, 'Head'),
+        })
+    return rows
+
+
 def parse_defending(data: dict, whoscored_match_id: int) -> dict:
     """
     Parse all defending stats from WhoScored matchCentreData.
 
     Returns:
         {
-            'team':   [home_row, away_row]
-            'player': [...]
+            'team':    [home_row, away_row]
+            'player':  [...]
+            'actions': [...]   one row per defensive event (maps)
         }
     """
     events  = data.get('events', [])
@@ -621,8 +696,10 @@ def parse_defending(data: dict, whoscored_match_id: int) -> dict:
             player_stats.append(stat)
 
     return {
-        'team':   team_stats,
-        'player': player_stats,
+        'team':    team_stats,
+        'player':  player_stats,
+        'actions': _action_rows(events, (home_id, away_id), names,
+                                whoscored_match_id),
     }
 
 
