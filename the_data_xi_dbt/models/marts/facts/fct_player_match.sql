@@ -13,6 +13,9 @@
 -- of anything that should count only matchday squads.
 -- minutes_played: Sofascore minutes; 0 for unused subs and unavailable players
 -- (Sofascore leaves those NULL); NULL only if a starter's minutes are unknown.
+-- shirt_number: the number worn in THIS match (WhoScored, else Fotmob, else
+-- Sofascore lineups); NULL when no provider has it. Cast defensively: columns
+-- auto-added by the loader arrive as TEXT.
 {% set sps_cols = adapter.get_columns_in_relation(ref('stg_sofa_player_stats'))
                   | map(attribute='name') | list %}
 {% set fps_cols = adapter.get_columns_in_relation(ref('stg_fot_player_stats'))
@@ -20,7 +23,8 @@
 with ws as (
     select combo_id, player_uid, team_uid, player_name, is_home_team,
            is_starter, is_captain, position as ws_position,
-           subbed_in_minute, subbed_out_minute
+           subbed_in_minute, subbed_out_minute,
+           nullif(shirt_number::text, '')::numeric::int as shirt_number
     from {{ ref('stg_ws_lineups') }}
 ),
 fot as (
@@ -29,12 +33,14 @@ fot as (
            position as fot_position, usual_position as fot_usual_position,
            position_id as fot_position_id, usual_position_id as fot_usual_position_id,
            rating as fot_rating,
-           role as fot_role, unavailable_type, unavailable_reason
+           role as fot_role, unavailable_type, unavailable_reason,
+           nullif(shirt_number::text, '')::numeric::int as shirt_number
     from {{ ref('stg_fot_lineups') }}
 ),
 sofa as (
     select combo_id, player_uid, team_uid, is_home_team, is_starter, is_captain,
-           position as sofa_position, minutes_played
+           position as sofa_position, minutes_played,
+           nullif(shirt_number::text, '')::numeric::int as shirt_number
     from {{ ref('stg_sofa_lineups') }}
 ),
 sofa_rating as (
@@ -67,6 +73,7 @@ select
          else coalesce(w.is_starter, s.is_starter, f.fot_role = 'starter')
     end                                                 as is_starter,
     coalesce(w.is_captain, f.is_captain, s.is_captain)  as is_captain,
+    coalesce(w.shirt_number, f.shirt_number, s.shirt_number) as shirt_number,
     case
         when f.fot_role = 'unavailable' then 'unavailable'
         when coalesce(w.is_starter, s.is_starter, f.fot_role = 'starter') then 'starter'
