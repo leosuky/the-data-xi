@@ -178,6 +178,10 @@ select
     k.combo_id || '-' || k.team_uid || '-' || k.team_row_id as shot_uid,
     k.combo_id, k.team_uid, k.team_row_id,
     coalesce(w.player_uid, f.player_uid, so.player_uid) as player_uid,
+    -- player_name: WhoScored's, else Fotmob's, else Sofascore's, else the
+    -- player dimension. It used to be WhoScored-only, so every shot in a match
+    -- without an event feed (all Saudi and Conference League) had no name.
+    coalesce(w.player_name, f.player_name, so.player_name, dp.full_name) as player_name,
     -- is_goal: the ball went in (own goals included; use credited_team_uid).
     -- WhoScored when present, else Sofascore, else Fotmob's event_type
     coalesce(w.is_goal_scored, so.shottype = 'goal', f.event_type = 'Goal') as is_goal_any_provider,
@@ -200,7 +204,7 @@ select
     end                                                 as credited_team_uid,
     {{ passthrough_columns(ref('stg_ws_shots'), 'w',
          exclude=['combo_id','row_id','team_row_id','player_uid','team_uid','is_goal',
-                  'is_own_goal','is_goal_scored','minute',
+                  'is_own_goal','is_goal_scored','minute','player_name',
                   'x','y','goal_mouth_y','goal_mouth_z','xgot','expanded_minute']) }},
     -- minute: WhoScored's (elapsed minute, so 52 = the 53rd); for a shot only
     -- Fotmob or Sofascore has, their display minute (+ added time) - 1 on the
@@ -236,15 +240,20 @@ left join fot  f  on f.combo_id  = k.combo_id and f.shot_id  = k.fot_shot_id
 left join sofa so on so.combo_id = k.combo_id and so.shot_id = k.sofa_shot_id
 left join ws_own_goal og on og.combo_id = k.combo_id and og.row_id = k.ws_row_id
 left join {{ ref('dim_match') }} dm on dm.combo_id = k.combo_id
+left join {{ ref('dim_player') }} dp
+       on dp.player_uid = coalesce(w.player_uid, f.player_uid, so.player_uid)
 ),
--- One goal logged twice: providers disagree on who scored, e.g. Fotmob logs an
--- own goal while WhoScored/Sofascore credit the attacker's shot (which Fotmob
--- marks as a miss), so the two never match and the side gets an extra goal.
+-- One goal logged twice: providers disagree on who scored or when, so their
+-- rows never match and the side gets an extra goal. E.g. Fotmob logs an own
+-- goal while WhoScored/Sofascore credit the attacker's shot (which Fotmob marks
+-- as a miss), or two providers log the same goal under different players.
 -- Only when the side's shot goals exceed its score: for two goal rows of that
--- side within 3 minutes, one an own goal and one not, the row with the lower
--- goal_claims weight (WhoScored 2, Sofascore 2, Fotmob 1) keeps its shot data
--- but stops counting (is_goal false, goal_disputed true). So a Fotmob-only
--- version always loses to a WhoScored or Sofascore one. A tie changes nothing.
+-- side within 3 minutes that are either one own goal and one not, or come from
+-- different providers (no provider on both rows), the row with the lower
+-- goal_rank (claims weight WhoScored 2, Sofascore 2, Fotmob 1; then WhoScored
+-- > Sofascore > Fotmob) keeps its shot data but stops counting (is_goal false,
+-- goal_disputed true). So a Fotmob-only version always loses to a WhoScored or
+-- Sofascore one. A full tie changes nothing.
 side_goals as (
     select s.combo_id, s.credited_team_uid, count(*) as goals,
            max(case when s.credited_team_uid = dm.home_team_uid
@@ -255,20 +264,39 @@ side_goals as (
     where s.is_goal_any_provider
     group by s.combo_id, s.credited_team_uid
 ),
+ranked as (
+    -- goal_rank: goal_claims first; between equal claims a WhoScored row beats a
+    -- Sofascore row beats a Fotmob-only row
+    select *, goal_claims * 10
+              + case when ws_row_id is not null then 2
+                     when sofa_shot_id is not null then 1 else 0 end as goal_rank
+    from shots
+),
 dup_goal as (
-    select distinct
-           case when a.goal_claims < b.goal_claims then a.shot_uid else b.shot_uid end as shot_uid
-    from shots a
-    join shots b on b.combo_id = a.combo_id
+    select
+           case when a.goal_rank < b.goal_rank then a.shot_uid else b.shot_uid end as shot_uid
+    from ranked a
+    join ranked b on b.combo_id = a.combo_id
                 and b.credited_team_uid = a.credited_team_uid
                 and a.shot_uid < b.shot_uid
                 and abs(a.match_time - b.match_time) <= 3
-                and a.is_own_goal <> b.is_own_goal
+                and (a.is_own_goal <> b.is_own_goal
+                     or (    (a.ws_row_id    is null or b.ws_row_id    is null)
+                         and (a.fot_shot_id  is null or b.fot_shot_id  is null)
+                         and (a.sofa_shot_id is null or b.sofa_shot_id is null)))
     join side_goals g on g.combo_id = a.combo_id
                      and g.credited_team_uid = a.credited_team_uid
     where a.is_goal_any_provider and b.is_goal_any_provider
-      and a.goal_claims <> b.goal_claims
+      and a.goal_rank <> b.goal_rank
       and g.goals > g.score
+    union
+    -- a goal row with no player at all, on a side that already has too many
+    -- goals (e.g. Guingamp v Marseille 2019: an extra nameless goal at 0')
+    select s.shot_uid
+    from shots s
+    join side_goals g on g.combo_id = s.combo_id
+                     and g.credited_team_uid = s.credited_team_uid
+    where s.is_goal_any_provider and s.player_uid is null and g.goals > g.score
 )
 select
     s.is_goal_any_provider and d.shot_uid is null as is_goal,

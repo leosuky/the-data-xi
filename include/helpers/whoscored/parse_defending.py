@@ -685,14 +685,13 @@ def parse_defending(data: dict, whoscored_match_id: int) -> dict:
             player_id              = player_id,
             player_name            = names.get(str(player_id)),
         )
-        is_gk = player_id in gk_ids
-        # Include player if they had any tracked action, or if they are a GK
-        # (GKs always get a row even if they had no defensive/error events)
-        if stat and (is_gk
-                     or stat['defensive_actions_total'] > 0
-                     or stat['errors_total'] > 0
-                     or stat['fouls_conceded'] > 0
-                     or stat['ball_recoveries'] > 0):
+        # Every player with a tracked event (player_ids above), plus every GK,
+        # gets a row. The old filter kept only players with a nonzero
+        # defensive_actions_total / errors / fouls / recoveries, which dropped
+        # players whose only actions were aerials, lost tackles or being
+        # dribbled past (~2.6% of player-matches; their aerials and tackles
+        # vanished from player totals while team totals kept them).
+        if stat:
             player_stats.append(stat)
 
     return {
