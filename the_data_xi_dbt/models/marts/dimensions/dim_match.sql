@@ -18,6 +18,9 @@
 -- attendance: WhoScored first, but WhoScored sometimes stores 0 for a crowd it
 -- didn't record, so a 0 falls through to Fotmob, then Sofascore. A real 0
 -- (behind-closed-doors games) survives because all three then agree on 0.
+-- has_xg: true when the match's shots carry xG (Fotmob shots, the source of
+-- fct_shots.xg), or Sofascore's own flag says so. Sofascore's flag alone was
+-- false for whole seasons whose shots do have xG (e.g. PL 2020/21).
 {% set sm_cols = adapter.get_columns_in_relation(ref('stg_sofa_matches')) | map(attribute='name') | list %}
 {% set fm_cols = adapter.get_columns_in_relation(ref('stg_fot_match'))    | map(attribute='name') | list %}
 {% set att_fm = "nullif(f.attendance::text, '')::int" if 'attendance' in fm_cols else 'null::int' %}
@@ -28,6 +31,11 @@ with match_keys as (
     select combo_id from {{ ref('stg_fot_match') }}
     union
     select combo_id from {{ ref('stg_sofa_matches') }}
+),
+shot_xg as (
+    select combo_id, bool_or(xg is not null) as has_shot_xg
+    from {{ ref('stg_fot_shots') }}
+    group by combo_id
 )
 select
     k.combo_id,
@@ -63,12 +71,15 @@ select
         'finished'
     ) as match_status,
     -- Sofascore
-    sm.winnercode, sm.has_shotmap, sm.has_xg,
+    sm.winnercode, sm.has_shotmap,
+    coalesce(sx.has_shot_xg, false)
+      or coalesce(lower(sm.has_xg::text) in ('true', 't'), false) as has_xg,
     sm.home_formation, sm.away_formation
 from match_keys k
 left join {{ ref('stg_ws_match_meta') }} w  on w.combo_id  = k.combo_id
 left join {{ ref('stg_fot_match') }}     f  on f.combo_id  = k.combo_id
 left join {{ ref('stg_sofa_matches') }}  sm on sm.combo_id = k.combo_id
+left join shot_xg                        sx on sx.combo_id = k.combo_id
 left join {{ ref('int_team_xwalk') }}    hx  on hx.ws_team_id   = w.home_team_id
 left join {{ ref('int_team_xwalk') }}    ax  on ax.ws_team_id   = w.away_team_id
 left join {{ ref('int_team_xwalk') }}    hs  on hs.sofa_team_id = sm.home_team_id

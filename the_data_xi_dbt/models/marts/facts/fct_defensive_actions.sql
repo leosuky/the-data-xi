@@ -1,4 +1,6 @@
-{{ config(materialized='table', post_hook="create index if not exists {{ this.name }}_combo_idx on {{ this }} (combo_id)") }}
+{{ config(materialized='table', indexes=[{'columns': ['combo_id']}]) }}
+-- combo_id index only (overrides the facts default): ~5M rows, read one match
+-- at a time, so a season_uid index would only cost space.
 -- fct_defensive_actions: one row per defensive event (stg_ws_defensive_actions),
 -- for defensive-action maps. x/y are WhoScored 0-100 from the acting team's
 -- attacking direction (x = 0 own goal line, x = 100 opponent's).

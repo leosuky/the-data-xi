@@ -172,27 +172,43 @@ keyed as (
     left join ws   w  on w.combo_id  = sp.combo_id and w.row_id   = sp.ws_row_id
     left join fot  f  on f.combo_id  = sp.combo_id and f.shot_id  = sp.fot_shot_id
     left join sofa so on so.combo_id = sp.combo_id and so.shot_id = sp.sofa_shot_id
-)
+),
+shots as (
 select
     k.combo_id || '-' || k.team_uid || '-' || k.team_row_id as shot_uid,
     k.combo_id, k.team_uid, k.team_row_id,
     coalesce(w.player_uid, f.player_uid, so.player_uid) as player_uid,
     -- is_goal: the ball went in (own goals included; use credited_team_uid).
-    -- WhoScored when present, else Fotmob's event_type, else Sofascore
-    coalesce(w.is_goal_scored, f.event_type = 'Goal', so.shottype = 'goal') as is_goal,
-    -- own goal: Fotmob flag, else Sofascore goaltype, else WhoScored (shot row or context events)
-    coalesce(f.is_own_goal, so.goaltype = 'own',
-             og.row_id is not null or coalesce(w.is_own_goal, false), false) as is_own_goal,
-    case when coalesce(f.is_own_goal, so.goaltype = 'own',
-                       og.row_id is not null or coalesce(w.is_own_goal, false), false)
+    -- WhoScored when present, else Sofascore, else Fotmob's event_type
+    coalesce(w.is_goal_scored, so.shottype = 'goal', f.event_type = 'Goal') as is_goal_any_provider,
+    -- weight of the providers on this row that call it a goal (for dup_goal
+    -- below): WhoScored 2, Sofascore 2, Fotmob 1, since Fotmob drifts on scorers
+    2 * coalesce(w.is_goal_scored, false)::int + coalesce(f.event_type = 'Goal', false)::int
+      + 2 * coalesce(so.shottype = 'goal', false)::int   as goal_claims,
+    -- own goal: WhoScored (shot row or context events), else Sofascore goaltype,
+    -- else Fotmob. WhoScored and Sofascore agree on the scorer; Fotmob drifts
+    -- (it logs some goals as own goals the other two credit to the attacker).
+    case when w.row_id is not null then og.row_id is not null or coalesce(w.is_own_goal, false)
+                  when so.shot_id is not null then coalesce(so.goaltype = 'own', false)
+                  else coalesce(f.is_own_goal, false) end as is_own_goal,
+    case when case when w.row_id is not null then og.row_id is not null or coalesce(w.is_own_goal, false)
+                       when so.shot_id is not null then coalesce(so.goaltype = 'own', false)
+                       else coalesce(f.is_own_goal, false) end
          then case when k.team_uid = dm.home_team_uid then dm.away_team_uid
                    else dm.home_team_uid end
          else k.team_uid
     end                                                 as credited_team_uid,
     {{ passthrough_columns(ref('stg_ws_shots'), 'w',
          exclude=['combo_id','row_id','team_row_id','player_uid','team_uid','is_goal',
-                  'is_own_goal','is_goal_scored',
+                  'is_own_goal','is_goal_scored','minute',
                   'x','y','goal_mouth_y','goal_mouth_z','xgot','expanded_minute']) }},
+    -- minute: WhoScored's (elapsed minute, so 52 = the 53rd); for a shot only
+    -- Fotmob or Sofascore has, their display minute (+ added time) - 1 on the
+    -- same scale. match_time: minutes from kickoff with seconds where known.
+    coalesce(w.minute,
+             greatest(f.minute + coalesce(f.minute_added, 0) - 1, 0),
+             greatest(so.time + coalesce(so.addedtime, 0) - 1, 0))  as minute,
+    coalesce(w.t, so.t, f.t)                            as match_time,
     -- WhoScored coordinates (prefixed)
     w.x as ws_x, w.y as ws_y, w.goal_mouth_y as ws_goal_mouth_y, w.goal_mouth_z as ws_goal_mouth_z,
     -- Match timing from Fotmob
@@ -220,3 +236,43 @@ left join fot  f  on f.combo_id  = k.combo_id and f.shot_id  = k.fot_shot_id
 left join sofa so on so.combo_id = k.combo_id and so.shot_id = k.sofa_shot_id
 left join ws_own_goal og on og.combo_id = k.combo_id and og.row_id = k.ws_row_id
 left join {{ ref('dim_match') }} dm on dm.combo_id = k.combo_id
+),
+-- One goal logged twice: providers disagree on who scored, e.g. Fotmob logs an
+-- own goal while WhoScored/Sofascore credit the attacker's shot (which Fotmob
+-- marks as a miss), so the two never match and the side gets an extra goal.
+-- Only when the side's shot goals exceed its score: for two goal rows of that
+-- side within 3 minutes, one an own goal and one not, the row with the lower
+-- goal_claims weight (WhoScored 2, Sofascore 2, Fotmob 1) keeps its shot data
+-- but stops counting (is_goal false, goal_disputed true). So a Fotmob-only
+-- version always loses to a WhoScored or Sofascore one. A tie changes nothing.
+side_goals as (
+    select s.combo_id, s.credited_team_uid, count(*) as goals,
+           max(case when s.credited_team_uid = dm.home_team_uid
+                    then nullif(dm.home_score::text, '')::int
+                    else nullif(dm.away_score::text, '')::int end) as score
+    from shots s
+    join {{ ref('dim_match') }} dm on dm.combo_id = s.combo_id
+    where s.is_goal_any_provider
+    group by s.combo_id, s.credited_team_uid
+),
+dup_goal as (
+    select distinct
+           case when a.goal_claims < b.goal_claims then a.shot_uid else b.shot_uid end as shot_uid
+    from shots a
+    join shots b on b.combo_id = a.combo_id
+                and b.credited_team_uid = a.credited_team_uid
+                and a.shot_uid < b.shot_uid
+                and abs(a.match_time - b.match_time) <= 3
+                and a.is_own_goal <> b.is_own_goal
+    join side_goals g on g.combo_id = a.combo_id
+                     and g.credited_team_uid = a.credited_team_uid
+    where a.is_goal_any_provider and b.is_goal_any_provider
+      and a.goal_claims <> b.goal_claims
+      and g.goals > g.score
+)
+select
+    s.is_goal_any_provider and d.shot_uid is null as is_goal,
+    d.shot_uid is not null                         as goal_disputed,
+    s.*
+from shots s
+left join dup_goal d on d.shot_uid = s.shot_uid

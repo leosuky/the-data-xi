@@ -44,5 +44,12 @@ models:
         +materialized: table        # small, full-refresh (SCD position updates ride this)
       facts:
         +materialized: table        # full-refresh; volumes are modest (<10M rows), reloads handled for free
+        # The app reads one match (combo_id) or one season (season_uid) at a
+        # time; without these every read scanned all seasons (~1 s per table).
+        +indexes:
+          - {columns: [combo_id]}
+          - {columns: [season_uid]}
       aggregates:
         +materialized: table        # season rollups: a view took ~6 s per read in the app
+        +indexes:
+          - {columns: [season_uid]}
