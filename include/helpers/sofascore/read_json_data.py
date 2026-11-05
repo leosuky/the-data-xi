@@ -40,6 +40,8 @@ def flatten_dict(nested_dict, parent_key='', separator='_'):
 
 
 def players(filepath: str) -> dict:
+    # position / country can be missing (e.g. an unused sub listed with no
+    # position, UCL 2026-11-03 Galatasaray v Stuttgart): read them with .get()
     # Takes the lineups.json file
     with open(filepath, 'r', encoding='utf-8') as file:
         lineups = json.load(file)
@@ -52,8 +54,8 @@ def players(filepath: str) -> dict:
         row = {}
         row['player_id'] = player['player']['id']
         row['name'] = player['player']['name']
-        row['position'] = player['position']
-        row['nationality'] = player['player']['country'].get('name')
+        row['position'] = player.get('position')
+        row['nationality'] = (player['player'].get('country') or {}).get('name')
         row['birth_date'] = convert_timestamp_to_datetime(player['player'].get('dateOfBirthTimestamp'))
 
         players_list.append(row)
@@ -62,8 +64,8 @@ def players(filepath: str) -> dict:
         row = {}
         row['player_id'] = player['player']['id']
         row['name'] = player['player']['name']
-        row['position'] = player['position']
-        row['nationality'] = player['player']['country'].get('name')
+        row['position'] = player.get('position')
+        row['nationality'] = (player['player'].get('country') or {}).get('name')
         row['birth_date'] = convert_timestamp_to_datetime(player['player'].get('dateOfBirthTimestamp'))
 
         players_list.append(row)
@@ -409,7 +411,7 @@ def player_stats(filepath: str, match_id: int, combo_id: str, home_id: int, away
             row['team_id'] = home_id
             row['is_home_team'] = True
             row['player_id'] = player['player']['id']
-            row['position'] = player['position']
+            row['position'] = player.get('position')
             rating = 'ratingVersions' in player['statistics']
             if rating:
                 row['match_rating'] = player['statistics']['ratingVersions']['original']
@@ -429,7 +431,7 @@ def player_stats(filepath: str, match_id: int, combo_id: str, home_id: int, away
             row['team_id'] = away_id
             row['is_home_team'] = False
             row['player_id'] = player['player']['id']
-            row['position'] = player['position']
+            row['position'] = player.get('position')
             rating = 'ratingVersions' in player['statistics']
             if rating:
                 row['match_rating'] = player['statistics']['ratingVersions']['original']
@@ -473,7 +475,7 @@ def lineups_table(filepath: str, match_id: int, combo_id: str, home_id: int, awa
         row['is_captain'] = captain
         row['minutes_played'] = lineups['home']['players'][i]['statistics'].get('minutesPlayed') if stats else 0
         row['shirt_number'] = lineups['home']['players'][i].get('shirtNumber')
-        row['position'] = lineups['home']['players'][i]['position']
+        row['position'] = lineups['home']['players'][i].get('position')
 
         lineup_data.append(row)
 
@@ -490,7 +492,7 @@ def lineups_table(filepath: str, match_id: int, combo_id: str, home_id: int, awa
         row['is_captain'] = captain
         row['minutes_played'] = lineups['away']['players'][i]['statistics'].get('minutesPlayed') if stats else 0
         row['shirt_number'] = lineups['away']['players'][i].get('shirtNumber')
-        row['position'] = lineups['away']['players'][i]['position']
+        row['position'] = lineups['away']['players'][i].get('position')
 
         lineup_data.append(row)
 
