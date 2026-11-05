@@ -159,8 +159,7 @@ class GameStateTimeline:
     def __init__(self, data: dict):
         self.home_id = data['home']['teamId']
         self.away_id = data['away']['teamId']
-        events = sorted(data.get('events', []),
-                        key=lambda e: (_t(e), e.get('eventId', 0)))
+        events = sorted(data.get('events', []), key=_t)
 
         # Period bounds keyed by period VALUE (1=1st half, 2=2nd half,
         # 3/4=extra time). Start/End events are duplicated per team, and
@@ -331,8 +330,7 @@ class GameStateTimeline:
 def _build_context_events(data, tl, whoscored_match_id):
     home_id, away_id = tl.home_id, tl.away_id
     names = data.get('playerIdNameDictionary', {})
-    events = sorted(data.get('events', []),
-                    key=lambda e: (_t(e), e.get('eventId', 0)))
+    events = sorted(data.get('events', []), key=_t)
     rows = []
 
     def base_row(tm, team_id, period):
@@ -432,8 +430,7 @@ def parse_game_state(data: dict, whoscored_match_id: int) -> dict:
     """
     tl = GameStateTimeline(data)
     home_id, away_id = tl.home_id, tl.away_id
-    events = sorted(data.get('events', []),
-                    key=lambda e: (_t(e), e.get('eventId', 0)))
+    events = sorted(data.get('events', []), key=_t)
 
     # ── 1. spine ──────────────────────────────────────────────────────────
     spine = []
@@ -596,7 +593,7 @@ def parse_game_state(data: dict, whoscored_match_id: int) -> dict:
             if 6 in qids:
                 a['corners'] += 1
             # PPDA: opposition pass faced outside the presser's defensive third.
-            if x <= FINAL_THIRD_MIN:
+            if x <= 60.0:
                 agg[okey]['ppda_passes_faced'] += 1
 
         # ── Chance creation (KeyPass on ANY event type; Opta/FotMob) ──
@@ -614,7 +611,7 @@ def parse_game_state(data: dict, whoscored_match_id: int) -> dict:
         if (tid, e.get('eventId')) in assist_event_ids:
             a['assists'] += 1
 
-        if (etype in _PPDA_ACTIONS and x >= DEF_THIRD_MAX
+        if (etype in _PPDA_ACTIONS and x >= 40.0
                 and not (etype == 'Foul' and acc)):   # fouls WON aren't defensive actions
             a['def_actions'] += 1
         if etype == 'Foul':

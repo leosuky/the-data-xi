@@ -47,9 +47,10 @@ Chain rules (the important ones):
   - A player fouled while in possession ends (and records) their carry at the
     foul spot.
 
-Parameters (calibrated vs Sofascore across 4 PL matches, 117 player rows:
-Villa-West Ham, Spurs-Forest, Newcastle-Sunderland, Everton-Chelsea):
-  MIN_CARRY_DIST = 3.25 m, MAX_TIME_GAP = 8 s
+Parameters (fitted to Opta's 2026/27 player tables, Nov 2026; before that they
+were calibrated vs Sofascore at 3.25 m / 8 s / 25% closer to goal, and the
+validation figures below are from that older Sofascore calibration):
+  MIN_CARRY_DIST = 5.25 m, MAX_TIME_GAP = 10 s, progressive = >=5 m upfield
   4-match validation vs Sofascore:
     Count:    r = 0.91-0.99 per match, MAE = 1.42, team totals within ~3%
     Distance: r = 0.92-0.98, total error 0.0% to +3.3% per match
@@ -64,10 +65,9 @@ Villa-West Ham, Spurs-Forest, Newcastle-Sunderland, Everton-Chelsea):
 
 PROGRESSIVE CARRY DEFINITION
 ----------------------------
-A carry that moves the ball at least 25% closer to the centre of the
-opponent's goal (the same relative rule Opta uses for progressive passes —
-empirically this is what Sofascore's progressiveBallCarriesCount matches,
-NOT the published "5m upfield" Opta carry rule, which over-fires ~5x).
+A carry that moves the ball at least 5 m upfield (Opta's published rule).
+Opta is the reference; Sofascore's progressiveBallCarriesCount uses a stricter
+rule (about 25% closer to goal) and stays available in the Sofascore tables.
 
 FINAL THIRD ENTRY VIA CARRY
 ---------------------------
@@ -86,9 +86,9 @@ import math
 
 PITCH_LENGTH   = 105.0
 PITCH_WIDTH    = 68.0
-MIN_CARRY_DIST = 3.25    # metres
-MAX_TIME_GAP   = 8       # seconds between receipt and action
-PROG_PCT       = 0.25    # progressive = >=25% closer to opponent goal
+MIN_CARRY_DIST = 5.25    # metres (Opta: 5m; 5.25 fits best on rounded coordinates)
+MAX_TIME_GAP   = 10      # seconds between receipt and action
+PROG_MIN_UPFIELD_M = 5.0 # progressive = >=5m upfield (Opta)
 FINAL_THIRD_X  = 66.6
 
 DEAD_BALL_QUALIFIERS = {'ThrowIn', 'CornerTaken', 'FreekickTaken',
@@ -115,15 +115,12 @@ STOPPAGE_TYPES = {'End', 'Start', 'OffsideGiven', 'OffsideProvoked',
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+SHOT_TYPES = {'MissedShots', 'SavedShot', 'ShotOnPost', 'Goal'}
+
+
 def _dist_m(x1, y1, x2, y2):
     return math.sqrt(((x2 - x1) * PITCH_LENGTH / 100) ** 2
                      + ((y2 - y1) * PITCH_WIDTH / 100) ** 2)
-
-
-def _goal_dist_m(x, y):
-    """Distance to the centre of the opponent's goal (x=100, y=50)."""
-    return math.sqrt(((100 - x) * PITCH_LENGTH / 100) ** 2
-                     + ((50 - y) * PITCH_WIDTH / 100) ** 2)
 
 
 def _get_time(event):
@@ -139,9 +136,18 @@ def _qualifiers(event):
 def _derive_carries(sorted_events, home_id, away_id):
     """
     Ball-state machine. Returns
-    {player_id: {team_id, carries, carry_distance_m,
-                 progressive_carries, carry_final_third_entries}}
+    {player_id: {team_id, carries, carry_distance_m, progressive_carries,
+                 carry_final_third_entries, progressive_distance_m,
+                 shot_ending_carries, goal_ending_carries,
+                 chance_ending_carries, assist_ending_carries}}
     """
+    # (team, pass eventId) -> type of the shot that names it as RelatedEventId
+    related_shot = {}
+    for ev in sorted_events:
+        ev_type = ev.get('type', {}).get('displayName')
+        if ev_type in SHOT_TYPES and ev.get('relatedEventId') is not None:
+            related_shot[(ev.get('teamId'), ev.get('relatedEventId'))] = ev_type
+
     # Ball state ------------------------------------------------------------
     ax = ay = None      # anchor position (last known ball location)
     a_team = None       # coordinate frame the anchor is expressed in
@@ -161,20 +167,39 @@ def _derive_carries(sorted_events, home_id, away_id):
         ax, ay, a_team, a_time, holder = x, y, team, now, pid
         in_hands = hands
 
-    def record(pid, team, end_x, end_y):
+    def record(pid, team, end_x, end_y, end_event):
         # anchor may be in the other team's frame: flip if needed
         sx, sy = (ax, ay) if a_team == team else (100 - ax, 100 - ay)
         d = _dist_m(sx, sy, end_x, end_y)
         if d < MIN_CARRY_DIST:
             return
+        end_q = _qualifiers(end_event)
+        if 'FirstTouch' in end_q:           # a first-time action is not a carry
+            return
         row = data.setdefault(pid, {
             'team_id': team, 'carries': 0, 'carry_distance_m': 0.0,
             'progressive_carries': 0, 'carry_final_third_entries': 0,
+            'progressive_distance_m': 0.0, 'shot_ending_carries': 0,
+            'goal_ending_carries': 0, 'chance_ending_carries': 0,
+            'assist_ending_carries': 0,
         })
         row['carries'] += 1
         row['carry_distance_m'] += d
-        g0, g1 = _goal_dist_m(sx, sy), _goal_dist_m(end_x, end_y)
-        if g0 > 0 and (g0 - g1) / g0 >= PROG_PCT:
+        # Opta's progressive distance: NET upfield metres over ALL carries, so
+        # it can be negative, and is not limited to progressive carries.
+        row['progressive_distance_m'] += (end_x - sx) * PITCH_LENGTH / 100
+        end_type = end_event.get('type', {}).get('displayName')
+        if end_type in SHOT_TYPES and 'OwnGoal' not in end_q:
+            row['shot_ending_carries'] += 1
+            if end_type == 'Goal':
+                row['goal_ending_carries'] += 1
+        if end_type == 'Pass':
+            shot = related_shot.get((team, end_event.get('eventId')))
+            if shot or 'KeyPass' in end_q:
+                row['chance_ending_carries'] += 1
+            if shot == 'Goal':
+                row['assist_ending_carries'] += 1
+        if (end_x - sx) * PITCH_LENGTH / 100 >= PROG_MIN_UPFIELD_M:
             row['progressive_carries'] += 1
         if sx < FINAL_THIRD_X <= end_x:
             row['carry_final_third_entries'] += 1
@@ -206,14 +231,14 @@ def _derive_carries(sorted_events, home_id, away_id):
         if ax is not None and not dead_restart and time_ok and not in_hands:
             if etype in CONTROLLED_ACTIONS or fouled_in_possession:
                 if holder == pid:
-                    record(pid, team, x, y)
+                    record(pid, team, x, y, e)
                 elif holder is None and a_team == team:
                     # collecting a teammate's pass / loose ball in own frame
-                    record(pid, team, x, y)
+                    record(pid, team, x, y, e)
                 elif holder is None and a_team != team:
                     # loose ball anchored in opponent frame (e.g. their
                     # clearance endpoint) — flip handled inside record()
-                    record(pid, team, x, y)
+                    record(pid, team, x, y, e)
 
         # ── 2. Update ball state ───────────────────────────────────────────
         if etype == 'Pass':
@@ -273,7 +298,9 @@ def parse_carries(data: dict, whoscored_match_id: int) -> dict:
     away_id = data['away']['teamId']
     names   = data.get('playerIdNameDictionary', {})
 
-    sorted_events = sorted(events, key=lambda e: (_get_time(e), e.get('eventId', 0)))
+    # Stable sort on time ONLY: eventId is per team, so it scrambles same-second
+    # events and breaks the chain (the cause of the attacker undercount).
+    sorted_events = sorted(events, key=_get_time)
 
     raw = _derive_carries(sorted_events, home_id, away_id)
 
@@ -288,6 +315,11 @@ def parse_carries(data: dict, whoscored_match_id: int) -> dict:
             'carry_distance_m':          round(cd['carry_distance_m'], 1),
             'progressive_carries':       cd['progressive_carries'],
             'carry_final_third_entries': cd['carry_final_third_entries'],
+            'progressive_distance_m':    round(cd['progressive_distance_m'], 1),
+            'shot_ending_carries':       cd['shot_ending_carries'],
+            'goal_ending_carries':       cd['goal_ending_carries'],
+            'chance_ending_carries':     cd['chance_ending_carries'],
+            'assist_ending_carries':     cd['assist_ending_carries'],
         })
 
     team_agg = {}
@@ -297,7 +329,15 @@ def parse_carries(data: dict, whoscored_match_id: int) -> dict:
             'whoscored_match_id': whoscored_match_id, 'team_id': tid,
             'carries': 0, 'carry_distance_m': 0.0,
             'progressive_carries': 0, 'carry_final_third_entries': 0,
+            'progressive_distance_m': 0.0, 'shot_ending_carries': 0,
+            'goal_ending_carries': 0, 'chance_ending_carries': 0,
+            'assist_ending_carries': 0,
         })
+        agg['progressive_distance_m']    += row['progressive_distance_m']
+        agg['shot_ending_carries']       += row['shot_ending_carries']
+        agg['goal_ending_carries']       += row['goal_ending_carries']
+        agg['chance_ending_carries']     += row['chance_ending_carries']
+        agg['assist_ending_carries']     += row['assist_ending_carries']
         agg['carries']                   += row['carries']
         agg['carry_distance_m']          += row['carry_distance_m']
         agg['progressive_carries']       += row['progressive_carries']
@@ -308,6 +348,7 @@ def parse_carries(data: dict, whoscored_match_id: int) -> dict:
         if tid in team_agg:
             r = team_agg[tid]
             r['carry_distance_m'] = round(r['carry_distance_m'], 1)
+            r['progressive_distance_m'] = round(r['progressive_distance_m'], 1)
             team_rows.append(r)
 
     return {

@@ -33,10 +33,9 @@ Key pass (Opta)
 Passes into channels / switches
     Switch of play: base pass with length > 32 AND lateral distance > 25.
 
-PPDA (Opta) — identical to the canonical definition in parse_advanced_possession
-    Opposition passes OUTSIDE the pressing team's own defensive third (opposition
-    frame x <= 66.6) divided by the pressing team's defensive actions outside
-    THEIR own defensive third (own frame x >= 33.4): tackles + interceptions +
+PPDA (Opta) — identical to the canonical definition in parse_advanced_possession (passes x<=60, actions x>=40)
+    Opposition passes at x <= 60 in the opposition's frame divided by the pressing
+    team's defensive actions at x >= 40 in its own frame: tackles + interceptions +
     fouls COMMITTED + challenges + blocked passes. Lower = more aggressive press.
     Source: Opta Analyst definitions.
 
@@ -427,6 +426,21 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
         crosses_open_att  = len(crosses_open)
         crosses_open_acc  = sum(1 for p in crosses_open if _acc(p))
 
+        # Pass direction, Opta style: four 90-degree cones measured in metres
+        cones = {'forward': 0, 'backward': 0, 'left': 0, 'right': 0}
+        for p in all_team_passes:
+            if p.get('x') is None or p.get('endX') is None:
+                continue
+            dx = (_flt(p.get('endX')) - _flt(p.get('x'))) * 1.05
+            dy = (_flt(p.get('endY')) - _flt(p.get('y'))) * 0.68
+            if abs(dx) >= abs(dy):
+                cones['forward' if dx > 0 else 'backward'] += 1
+            else:
+                cones['left' if dy > 0 else 'right'] += 1
+        cone_n = sum(cones.values())
+        cone_pct = {k: round(v / cone_n * 100, 2) if cone_n else None
+                    for k, v in cones.items()}
+
         # Corner deliveries open play
         corners_total    = [p for p in all_team_passes if _has_qid(p, 6)]
         corners_open     = [p for p in corners_total if _is_open_play_event(p)]
@@ -476,7 +490,7 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
             if e.get('type', {}).get('value') == 1
             and e.get('teamId') == opp_id
             and e.get('x') is not None
-            and _flt(e.get('x')) <= 66.6
+            and _flt(e.get('x')) <= 60.0
         )
         def_actions = sum(
             1 for e in events
@@ -485,7 +499,7 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
             ('Tackle', 'Interception', 'Foul', 'Challenge', 'BlockedPass')
             and not (e['type']['displayName'] == 'Foul' and _acc(e))
             and e.get('x') is not None
-            and _flt(e.get('x')) >= 33.4
+            and _flt(e.get('x')) >= 40.0
         )
         ppda = round(opp_passes_in_zone / def_actions, 2) if def_actions else None
 
@@ -560,6 +574,10 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
             'big_chances_created':            big_chances_created_all,
             'big_chances_created_open_play':  big_chances_created_open_play,
             # Crosses (open play split)
+            'pass_cone_forward_pct':          cone_pct['forward'],
+            'pass_cone_backward_pct':         cone_pct['backward'],
+            'pass_cone_left_pct':             cone_pct['left'],
+            'pass_cone_right_pct':            cone_pct['right'],
             'crosses_open_play_attempted':    crosses_open_att,
             'crosses_open_play_accurate':     crosses_open_acc,
             # Corner deliveries (open play split — always 0 by definition)
@@ -614,6 +632,39 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
                     if assist_evt and assist_evt.get('playerId') == player_id:
                         player_assists += 1
 
+        # Open-play splits (same rules as the team row)
+        def _is_open(ev):
+            return not any(q.get('type', {}).get('value') in DEAD_BALL_IDS
+                           for q in ev.get('qualifiers', []))
+        kp_open = sum(
+            1 for e in events
+            if e.get('teamId') == team_id
+            and e.get('playerId') == player_id
+            and _has(e, 'KeyPass')
+            and (e.get('teamId'), e.get('eventId')) not in assist_event_ids
+            and _is_open(e)
+        )
+        assists_open = 0
+        for e in events:
+            if (e['type']['displayName'] == 'Goal'
+                    and e.get('teamId') == team_id
+                    and _has_qid(e, 29)):
+                rel_id = _get(e, 'RelatedEventId')
+                if rel_id:
+                    assist_evt = event_by_id.get((team_id, int(float(rel_id))))
+                    if (assist_evt and assist_evt.get('playerId') == player_id
+                            and assist_evt.get('type', {}).get('value') == 1
+                            and _is_open(assist_evt)):
+                        assists_open += 1
+        player_crosses_open = [
+            e for e in events
+            if e.get('teamId') == team_id
+            and e.get('playerId') == player_id
+            and e.get('type', {}).get('value') == 1
+            and _has_qid(e, 2)
+            and _is_open(e)
+        ]
+
         # Player hold time — avg seconds between player's previous touch and their pass
         player_touch_times = sorted(
             [_time_seconds(e) for e in events
@@ -654,6 +705,10 @@ def parse_passing_advanced(data: dict, whoscored_match_id: int) -> dict:
             'key_passes':                  kp,
             'assists':                     player_assists,
             'chances_created':             kp + player_assists,
+            'chances_created_open_play':   kp_open + assists_open,
+            'assists_open_play':           assists_open,
+            'crosses_open_play_attempted': len(player_crosses_open),
+            'crosses_open_play_accurate':  sum(1 for e in player_crosses_open if _acc(e)),
             'avg_hold_seconds':            round(sum(hold_times) / len(hold_times), 2) if hold_times else None,
         })
 

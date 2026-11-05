@@ -185,6 +185,10 @@ CREATE TABLE IF NOT EXISTS ws_team_passing_adv (
     avg_release_seconds                 NUMERIC(5,2),
     quick_pass_pct                      NUMERIC(5,2),
     slow_pass_pct                       NUMERIC(5,2),
+    pass_cone_forward_pct       NUMERIC(5,2),
+    pass_cone_backward_pct      NUMERIC(5,2),
+    pass_cone_left_pct          NUMERIC(5,2),
+    pass_cone_right_pct         NUMERIC(5,2),
     UNIQUE (combo_id, team_id)
 );
 
@@ -284,6 +288,10 @@ CREATE TABLE IF NOT EXISTS ws_team_discipline (
     dangerous_foul_rate_pct     NUMERIC(5,2),
     foul_escalation_rate        NUMERIC(5,2),
     foul_to_card_ratio          NUMERIC(5,2),
+    penalties_won               INTEGER,
+    penalties_conceded          INTEGER,
+    staff_yellow_cards          INTEGER,
+    staff_red_cards             INTEGER,
     UNIQUE (combo_id, team_id)
 );
 
@@ -331,6 +339,11 @@ CREATE TABLE IF NOT EXISTS ws_player_carries (
     carry_distance_m            NUMERIC(7,1),
     progressive_carries         INTEGER,
     carry_final_third_entries   INTEGER,
+    progressive_distance_m      NUMERIC(7,1),
+    shot_ending_carries         INTEGER,
+    goal_ending_carries         INTEGER,
+    chance_ending_carries       INTEGER,
+    assist_ending_carries       INTEGER,
     UNIQUE (combo_id, player_id)
 );
 
@@ -343,6 +356,11 @@ CREATE TABLE IF NOT EXISTS ws_team_carries (
     carry_distance_m            NUMERIC(8,1),
     progressive_carries         INTEGER,
     carry_final_third_entries   INTEGER,
+    progressive_distance_m      NUMERIC(8,1),
+    shot_ending_carries         INTEGER,
+    goal_ending_carries         INTEGER,
+    chance_ending_carries       INTEGER,
+    assist_ending_carries       INTEGER,
     UNIQUE (combo_id, team_id)
 );
 
@@ -388,6 +406,11 @@ CREATE TABLE IF NOT EXISTS ws_team_poss_adv (
     open_play_turnover_pct  NUMERIC,
     possession_loss_pct     NUMERIC,
     set_piece_end_pct       NUMERIC,
+    ppda_passes                 INTEGER,
+    ppda_actions                INTEGER,
+    high_turnover_goals         INTEGER,
+    build_up_goals              INTEGER,
+    direct_attack_goals         INTEGER,
     UNIQUE (combo_id, team_id)
 );
 
@@ -444,6 +467,10 @@ CREATE TABLE IF NOT EXISTS ws_player_passing_adv (
     assists                     INTEGER,
     chances_created             INTEGER,
     avg_hold_seconds            NUMERIC(5,2),
+    chances_created_open_play   INTEGER,
+    assists_open_play           INTEGER,
+    crosses_open_play_attempted INTEGER,
+    crosses_open_play_accurate  INTEGER,
     UNIQUE (combo_id, player_id)
 );
 
@@ -598,6 +625,8 @@ CREATE TABLE IF NOT EXISTS ws_player_discipline (
     red_cards               INTEGER,
     second_yellow_cards     INTEGER,
     offsides_committed      INTEGER,
+    penalties_won               INTEGER,
+    penalties_conceded          INTEGER,
     UNIQUE (combo_id, player_id)
 );
 
@@ -705,6 +734,14 @@ CREATE TABLE IF NOT EXISTS ws_team_shooting (
     sca_fouled              INTEGER,
     sca_defense             INTEGER,
     shots_with_sca          INTEGER,
+    shots_penalty               INTEGER,
+    goals_penalty               INTEGER,
+    shots_on_target_penalty     INTEGER,
+    shots_direct_freekick       INTEGER,
+    goals_direct_freekick       INTEGER,
+    shots_set_piece             INTEGER,
+    goals_set_piece             INTEGER,
+    goals_by_subs               INTEGER,
     UNIQUE (combo_id, team_id)
 );
 
@@ -755,6 +792,13 @@ CREATE TABLE IF NOT EXISTS ws_player_shooting (
     sca_shot                INTEGER,
     sca_fouled              INTEGER,
     sca_defense             INTEGER,
+    shots_penalty               INTEGER,
+    goals_penalty               INTEGER,
+    shots_on_target_penalty     INTEGER,
+    shots_direct_freekick       INTEGER,
+    goals_direct_freekick       INTEGER,
+    shots_set_piece             INTEGER,
+    goals_set_piece             INTEGER,
     UNIQUE (combo_id, player_id)
 );
 
@@ -807,7 +851,10 @@ CREATE TABLE IF NOT EXISTS ws_shots (
     sca_1_type              TEXT,
     sca_2_player_id         INTEGER,
     sca_2_player_name       TEXT,
-    sca_2_type              TEXT
+    sca_2_type              TEXT,
+    is_penalty                  BOOLEAN,
+    is_direct_freekick          BOOLEAN,
+    is_set_piece                BOOLEAN
 );
 
 -- ══════════════════════════════════════════════════════════════════════════

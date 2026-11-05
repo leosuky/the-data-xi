@@ -48,22 +48,25 @@ OPTA-STYLE TEAM METRICS (definitions verified against Stats Perform /
 The Analyst, May 2025)
 ----------------------------------------------------------------------
   - avg_sequence_time / passes_per_sequence
-  - ten_plus_pass_sequences : open-play sequences with 10+ passes
+  - ten_plus_pass_sequences : any sequence with 10+ COMPLETED passes
   - build_up_attacks  : open-play sequences with 10+ passes ending in a
-                        shot or >=1 touch in the opposition box
-  - direct_attacks    : open-play sequences starting inside own half with
-                        >=50% of movement towards the opposition goal,
-                        ending in a shot or a box touch
+                        shot, a box touch or a completed pass into the box
+  - direct_attacks    : open-play sequences starting at x<=35 with net upfield
+                        distance >=50% of path length, ending in a shot or a box
+                        touch. PROXY fitted to Opta's table (r about 0.87), not
+                        their stated definition.
   - direct_speed_m_s  : upfield progress (m) divided by sequence time,
                         over open-play sequences starting in own half
   - start_distance_m  : avg distance (m) from own goal of open-play
                         sequence starts
-  - high_turnovers    : possessions starting in open play within 40m of
-                        the opponent's goal (+ how many end in a shot)
-  - ppda              : opposition passes outside the pressing team's own
-                        defensive third / pressing team's defensive actions
-                        (fouls committed, tackles, interceptions, challenges,
-                        blocked passes) outside their own defensive third.
+  - high_turnovers    : open-play sequences of 2+ events starting at x>=61.9
+                        (40m line) with a regain, or a pass after the opponent
+                        lost the ball (+ how many end in a shot)
+  - ppda              : opposition passes at x<=60 (their frame) / pressing
+                        team's defensive actions at x>=40 (fouls committed,
+                        tackles won or lost, interceptions, challenges, blocked
+                        passes). Matches Opta's two columns exactly. Opta's
+                        season figure is total/total, not a mean of matches.
                         NB WhoScored logs every foul twice (Unsuccessful =
                         team that committed it, Successful = team fouled);
                         only the committed one is a defensive action.
@@ -102,8 +105,16 @@ FINAL_THIRD_MIN   = 66.6
 DEF_THIRD_MAX     = 33.4   # own defensive third boundary (own frame)
 COUNTER_MAX_SECS  = 10.0   # legacy counter metric (kept for continuity)
 LONG_SEQ_MIN      = 10
-HIGH_TURNOVER_M   = 40.0   # high turnover = regain within 40m RADIUS of opp goal
-                           # (Opta draw this as an arc around the goal, not a line)
+HIGH_TURNOVER_MIN_X = 61.9 # high turnover = regain <=40m from opp goal, as a LINE
+                           # across the pitch (105m pitch: 65m = x 61.9). Fitted to
+                           # Opta's table; a 40m radius undercounts wide regains.
+HIGH_TURNOVER_STARTS = {'Tackle', 'Interception', 'BallRecovery', 'BlockedPass'}
+# First-event-is-a-pass sequences count only after the opponent lost the ball:
+HIGH_TURNOVER_PASS_AFTER = {'Pass', 'BallTouch', 'Error', 'Dispossessed', 'TakeOn'}
+DIRECT_MAX_START_X = 35.0  # fitted to Opta's direct_attacks (proxy, see notes)
+DIRECT_MIN_SHARE   = 0.5
+PPDA_PASS_MAX_X    = 60.0  # opposition passes in their own 60% of the pitch
+PPDA_ACTION_MIN_X  = 40.0  # pressing team's actions in the attacking 60%
 BOX_X_MIN         = 100 - 16.5 / PITCH_LENGTH * 100   # 84.3
 BOX_Y_MIN         = 50 - (40.32 / PITCH_WIDTH / 2) * 100  # 20.4
 BOX_Y_MAX         = 50 + (40.32 / PITCH_WIDTH / 2) * 100  # 79.6
@@ -159,11 +170,6 @@ def _is_restart(event: dict) -> bool:
     """Event takes place at a set-piece restart (ball was dead before it)."""
     return any(q.get('type', {}).get('displayName') in _RESTART_Q
                for q in event.get('qualifiers', []))
-
-def _goal_dist_m(x, y) -> float:
-    """Distance (m) to the centre of the opposition goal (x=100, y=50)."""
-    return math.sqrt(((100 - x) * PITCH_LENGTH / 100) ** 2
-                     + ((50 - y) * PITCH_WIDTH / 100) ** 2)
 
 def _in_box(e) -> bool:
     x, y = _flt(e.get('x'), -1), _flt(e.get('y'), -1)
@@ -398,18 +404,36 @@ def _seq_outcome(seq: list, dead_ball: str | None, next_event: dict | None) -> s
 def _seq_xs(seq):
     return [_flt(e.get('x')) for e in seq if e.get('x') is not None]
 
-def _upfield_share(seq) -> float:
-    """Share of total x-movement that goes towards the opposition goal."""
-    xs = _seq_xs(seq)
-    if len(xs) < 2:
-        return 0.0
-    fwd  = sum(max(0.0, xs[i+1] - xs[i]) for i in range(len(xs) - 1))
-    tot  = sum(abs(xs[i+1] - xs[i])      for i in range(len(xs) - 1))
-    return fwd / tot if tot > 0 else 0.0
-
 def _ends_shot_or_box(seq) -> bool:
     return bool(seq[-1].get('isShot')) or any(
         e.get('isTouch') and _in_box(e) for e in seq)
+
+def _pass_ends_in_box(e) -> bool:
+    return (e['type']['displayName'] == 'Pass'
+            and e.get('outcomeType', {}).get('displayName') == 'Successful'
+            and e.get('endX') is not None and e.get('endY') is not None
+            and _flt(e['endX']) >= BOX_X_MIN
+            and BOX_Y_MIN <= _flt(e['endY']) <= BOX_Y_MAX)
+
+def _net_directness(seq) -> float:
+    """Net upfield metres / total path metres, through pass end points."""
+    pts = []
+    for e in seq:
+        if e.get('x') is None:
+            continue
+        pts.append((_flt(e.get('x')), _flt(e.get('y'))))
+        if (e['type']['displayName'] == 'Pass'
+                and e.get('outcomeType', {}).get('displayName') == 'Successful'
+                and e.get('endX') is not None and e.get('endY') is not None):
+            pts.append((_flt(e['endX']), _flt(e['endY'])))
+    fwd = back = path = 0.0
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        dx = (x1 - x0) * PITCH_LENGTH / 100
+        dy = (y1 - y0) * PITCH_WIDTH / 100
+        if dx > 0: fwd += dx
+        else:      back -= dx
+        path += math.hypot(dx, dy)
+    return (fwd - back) / path if path > 0 else 0.0
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
@@ -428,7 +452,16 @@ def parse_possession_advanced(data: dict, whoscored_match_id: int) -> dict:
     home_id = data['home']['teamId']
     away_id = data['away']['teamId']
 
-    sorted_events = sorted(events, key=lambda e: (_get_time(e), e.get('eventId', 0)))
+    # Stable sort on time ONLY. eventId is numbered per team, so using it as a
+    # tie-break scrambles same-second events and splits sequences.
+    sorted_events = sorted(events, key=_get_time)
+    _prev_event = {}
+    for _i, _e in enumerate(sorted_events):
+        for _j in range(_i - 1, max(_i - 6, -1), -1):
+            if sorted_events[_j]['type']['displayName'] not in (
+                    'CornerAwarded', 'Card', 'SubstitutionOn', 'SubstitutionOff'):
+                _prev_event[id(_e)] = sorted_events[_j]
+                break
 
     # ── Possession % / minutes ────────────────────────────────────────────────
     home_poss_sum = sum(_flt(v) for v in data['home']['stats'].get('possession', {}).values())
@@ -492,9 +525,9 @@ def parse_possession_advanced(data: dict, whoscored_match_id: int) -> dict:
         other = away_id if tid == home_id else home_id
         etype = e['type']['displayName']
         x = _flt(e.get('x'), -1)
-        if etype == 'Pass' and x <= FINAL_THIRD_MIN:
+        if etype == 'Pass' and x <= PPDA_PASS_MAX_X:
             opp_passes_allowed[other] += 1          # pass faced by the other side
-        if (etype in _PPDA_ACTIONS and x >= DEF_THIRD_MAX
+        if (etype in _PPDA_ACTIONS and x >= PPDA_ACTION_MIN_X
                 and not (etype == 'Foul'
                          and e.get('outcomeType', {}).get('displayName') == 'Successful')):
             def_actions[tid] += 1               # fouls WON are not defensive actions
@@ -537,22 +570,30 @@ def parse_possession_advanced(data: dict, whoscored_match_id: int) -> dict:
         ends_box     = _ends_shot_or_box(seq)
 
         # ── Opta-style flags ──────────────────────────────────────────────
-        is_ten_plus  = is_open_play and n_passes >= LONG_SEQ_MIN
-        is_build_up  = is_ten_plus and ends_box
-        is_direct    = (is_open_play and start_x <= 50.0 and ends_box
-                        and _upfield_share(seq) >= 0.5 and length >= 2)
+        n_succ_pass  = sum(1 for e in seq if e['type']['displayName'] == 'Pass'
+                           and e.get('outcomeType', {}).get('displayName') == 'Successful')
+        # Opta's 10+ count is completed passes in ANY sequence (restarts included)
+        is_ten_plus  = n_succ_pass >= LONG_SEQ_MIN
+        ends_box_e   = ends_box or any(_pass_ends_in_box(e) for e in seq)
+        is_build_up  = is_open_play and n_passes >= LONG_SEQ_MIN and ends_box_e
+        is_direct    = (is_open_play and start_x <= DIRECT_MAX_START_X and ends_box
+                        and _net_directness(seq) >= DIRECT_MIN_SHARE and length >= 2)
         start_y      = _flt(seq[0].get('y', 50))
-        is_high_to   = (is_open_play
-                        and _goal_dist_m(start_x, start_y) <= HIGH_TURNOVER_M
-                        and idx in poss_id_of
-                        and possessions[poss_id_of[idx]][1][0] == idx)
-                        # high turnover counted at POSSESSION start, radial 40m (Opta)
+        first_type   = seq[0]['type']['displayName']
+        prev_ev      = _prev_event.get(id(seq[0]))
+        lost_by_opp  = (first_type == 'Pass' and prev_ev is not None
+                        and prev_ev.get('teamId') != team_id
+                        and prev_ev['type']['displayName'] in HIGH_TURNOVER_PASS_AFTER)
+        is_high_to   = (is_open_play and start_x >= HIGH_TURNOVER_MIN_X and length >= 2
+                        and (first_type in HIGH_TURNOVER_STARTS or lost_by_opp))
 
         # ── Accumulate ────────────────────────────────────────────────────
         a['seq_count']        += 1
         a['seq_length_sum']   += length
         a['seq_duration_sum'] += duration
-        a['seq_pass_sum']     += n_passes
+        if first_type not in ('Aerial', 'OffsideProvoked', 'Clearance', 'BallTouch'):
+            a['pps_count']    += 1          # Opta's passes-per-sequence base
+            a['seq_pass_sum'] += n_passes
         if is_open_play:
             a['op_seq_count']      += 1
             a['op_start_x_sum']    += start_x
@@ -565,6 +606,10 @@ def parse_possession_advanced(data: dict, whoscored_match_id: int) -> dict:
         if is_high_to:
             a['high_turnovers'] += 1
             if is_shot: a['high_to_shots'] += 1
+        if outcome == 'goal':
+            if is_build_up: a['build_up_goals']      += 1
+            if is_direct:   a['direct_attack_goals'] += 1
+            if is_high_to:  a['high_turnover_goals'] += 1
         if is_shot:
             a['seq_shot_count']        += 1
             a['seq_shot_length_sum']   += length
@@ -655,12 +700,15 @@ def parse_possession_advanced(data: dict, whoscored_match_id: int) -> dict:
             'final_third_touches':       ft_touches[tid],
             # Pressing
             'ppda':                      ppda[tid],
+            # PPDA parts: sum these for a season figure (Opta's is total/total)
+            'ppda_passes':               opp_passes_allowed[tid],
+            'ppda_actions':              def_actions[tid],
             # ── Sequence level (Opta-comparable) ──
             'sequences_total':           int(sc),
             'open_play_sequences':       int(ops),
             'avg_sequence_time_s':       _avg(a['seq_duration_sum'], sc),
             'avg_sequence_length':       _avg(a['seq_length_sum'], sc),
-            'passes_per_sequence':       _avg(a['seq_pass_sum'], sc),
+            'passes_per_sequence':       _avg(a['seq_pass_sum'], a['pps_count'], 2),
             'start_distance_m':          _avg(a['op_start_x_sum'] * PITCH_LENGTH / 100, ops),
             'direct_speed_m_s':          _avg(a['ds_progress_m'], a['ds_time_s'], 2),
             'ten_plus_pass_sequences':   int(a['ten_plus']),
@@ -668,6 +716,9 @@ def parse_possession_advanced(data: dict, whoscored_match_id: int) -> dict:
             'direct_attacks':            int(a['direct_attacks']),
             'high_turnovers':            int(a['high_turnovers']),
             'high_turnover_shots':       int(a['high_to_shots']),
+            'high_turnover_goals':       int(a['high_turnover_goals']),
+            'build_up_goals':            int(a['build_up_goals']),
+            'direct_attack_goals':       int(a['direct_attack_goals']),
             # Shot-ending sequences
             'shot_sequences':            int(shc),
             'shot_seq_pct':              _avg(shc * 100, sc),

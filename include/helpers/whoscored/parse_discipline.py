@@ -166,10 +166,16 @@ def parse_discipline(data: dict, whoscored_match_id: int) -> dict:
             'yellow_cards':             0,
             'red_cards':                0,
             'second_yellow_cards':      0,
+            # Staff cards (no playerId). Included in yellow_cards / red_cards:
+            # subtract them to get player-only totals, which is what Opta reports.
+            'staff_yellow_cards':       0,
+            'staff_red_cards':          0,
             # Offsides
             'offsides_committed':       0,
             'offsides_caught':          0,
             'goals_disallowed_offside': 0,
+            'penalties_won':            0,
+            'penalties_conceded':       0,
         }
 
     def _ensure_player(tid, pid):
@@ -188,8 +194,22 @@ def parse_discipline(data: dict, whoscored_match_id: int) -> dict:
                 'fouls_first_half': 0, 'fouls_second_half': 0, 'fouls_late_game': 0,
                 'yellow_cards': 0, 'red_cards': 0, 'second_yellow_cards': 0,
                 'offsides_committed': 0,
+                'penalties_won': 0, 'penalties_conceded': 0,
             }
         return player_stats.get(key)
+
+    # Penalties won / conceded: Foul events carrying the Penalty qualifier
+    for e in events:
+        if (e['type']['displayName'] != 'Foul'
+                or e.get('teamId') not in (home_id, away_id)
+                or not any(q['type']['displayName'] == 'Penalty'
+                           for q in e.get('qualifiers', []))):
+            continue
+        key = ('penalties_won' if e.get('outcomeType', {}).get('displayName') == 'Successful'
+               else 'penalties_conceded')
+        team_stats[e['teamId']][key] += 1
+        p = _ensure_player(e['teamId'], e.get('playerId'))
+        if p: p[key] += 1
 
     # Foul events
     for e in events:
@@ -250,9 +270,11 @@ def parse_discipline(data: dict, whoscored_match_id: int) -> dict:
         if c['card_type'] == 'Yellow':
             t['yellow_cards'] += 1
             if p: p['yellow_cards'] += 1
+            else: t['staff_yellow_cards'] += 1
         elif c['card_type'] == 'Red':
             t['red_cards'] += 1
             if p: p['red_cards'] += 1
+            else: t['staff_red_cards'] += 1
         elif c['card_type'] == 'SecondYellow':
             # second yellow = red; its first yellow is not counted (FotMob)
             t['second_yellow_cards'] += 1
@@ -262,9 +284,14 @@ def parse_discipline(data: dict, whoscored_match_id: int) -> dict:
                 p['second_yellow_cards'] += 1
                 p['red_cards']           += 1
                 p['yellow_cards']        -= 1
+            else:
+                t['staff_red_cards']     += 1
+                t['staff_yellow_cards']  -= 1
 
     for row in list(team_stats.values()) + list(player_stats.values()):
         row['yellow_cards'] = max(row['yellow_cards'], 0)
+    for row in team_stats.values():
+        row['staff_yellow_cards'] = max(row['staff_yellow_cards'], 0)
 
     # Offside events
     for e in events:

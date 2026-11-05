@@ -67,6 +67,8 @@ QID_OWN_GOAL = 28
 # QID 25=FromCorner, QID 160=ThrowinSetPiece
 # FreekickTaken (QID 5) also appears on some shots
 SHOT_SETPIECE_QS = {'SetPiece', 'FromCorner', 'FreekickTaken', 'ThrowinSetPiece'}
+# Opta's set-piece shots: matches its table exactly. Penalties are NOT included.
+OPTA_SET_PIECE_QS = {'FromCorner', 'SetPiece', 'ThrowinSetPiece', 'DirectFreekick'}
 
 # In-box location qualifiers
 IN_BOX_QS = {
@@ -404,6 +406,9 @@ def _shot_row(event, match_id: int, names: dict) -> dict:
         'is_first_touch':     _has(event, 'FirstTouch'),
         # Shot situation
         'pattern':            _pattern(event),
+        'is_penalty':         _has(event, 'Penalty'),
+        'is_direct_freekick': _has(event, 'DirectFreekick'),
+        'is_set_piece':       any(_has(event, q) for q in OPTA_SET_PIECE_QS),
         'is_from_corner':     _has(event, 'FromCorner'),
         'is_from_freekick':   _has(event, 'FreekickTaken') or _has(event, 'SetPiece'),
         'is_fast_break':      _has(event, 'FastBreak'),
@@ -517,6 +522,13 @@ def _aggregate(rows: list, match_id: int, team_id, player_id, player_name) -> di
         'shots_volley':              volleys,
         'shots_first_touch':         first_touch,
         # 4. Pattern / situation
+        'shots_penalty':             sum(1 for r in rows if r['is_penalty']),
+        'goals_penalty':             sum(1 for r in rows if r['is_penalty'] and r['is_goal']),
+        'shots_on_target_penalty':   sum(1 for r in rows if r['is_penalty'] and r['is_on_target']),
+        'shots_direct_freekick':     sum(1 for r in rows if r['is_direct_freekick']),
+        'goals_direct_freekick':     sum(1 for r in rows if r['is_direct_freekick'] and r['is_goal']),
+        'shots_set_piece':           sum(1 for r in rows if r['is_set_piece']),
+        'goals_set_piece':           sum(1 for r in rows if r['is_set_piece'] and r['is_goal']),
         'shots_from_corner':         from_corner,
         'shots_from_freekick':       from_fk,
         'shots_fast_break':          fast_break,
@@ -618,6 +630,9 @@ def parse_shooting(data: dict, whoscored_match_id: int) -> dict:
                      if _has_qid(e, QID_OWN_GOAL)}
     stat_rows = [r for r in shot_rows if id(r) not in own_goal_rows]
 
+    subs_on = {e.get('playerId') for e in events
+               if e['type']['displayName'] == 'SubstitutionOn'}
+
     # ── Team-level ─────────────────────────────────────────────────────────────
     team_stats = []
     for team_id in (home_id, away_id):
@@ -625,6 +640,8 @@ def parse_shooting(data: dict, whoscored_match_id: int) -> dict:
         stat = _aggregate(rows, whoscored_match_id, team_id, None, None)
         if stat:
             _attach_sca_totals(stat, rows)
+            stat['goals_by_subs'] = sum(
+                1 for r in rows if r['is_goal'] and r['player_id'] in subs_on)
             team_stats.append(stat)
 
     # ── Player-level ───────────────────────────────────────────────────────────
