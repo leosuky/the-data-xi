@@ -26,6 +26,7 @@ sources:
       - name: ws_player_shooting
       - name: ws_sequences
       - name: ws_shots
+      - name: ws_shot_xg
       - name: ws_team_defending
       - name: ws_team_discipline
       - name: ws_team_passing

@@ -46,6 +46,7 @@ WS_UNITS = (
     'possession_advanced',   # + ws_sequences
     'carries',
     'shooting',              # + ws_shots
+    'shot_xg',               # ws_shot_xg (Data XI xG / xGOT per shot)
     'goalkeeping',
     'game_state',            # ws_game_states / team_states / context_events / team_state_agg
 )
@@ -217,6 +218,7 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema, parsers=None):
     from include.helpers.whoscored.parse_carries import parse_carries
     from include.helpers.whoscored.parse_shooting import parse_shooting
     from include.helpers.whoscored.parse_game_state import parse_game_state
+    from include.helpers.whoscored.parse_shot_xg import parse_shot_xg
 
     total = 0
 
@@ -336,6 +338,15 @@ def _load_whoscored(cur, ws_data, ws_id, combo_id, schema, parsers=None):
 
         except Exception as e:
             log.error(f'  WS parser {name} failed: {e}')
+
+    # ── Data XI xG / xGOT (per shot; key combo_id + team_id + event_id) ──
+    if _selected('shot_xg', parsers):
+        try:
+            rows = [remap_row(r, combo_id) for r in parse_shot_xg(ws_data, ws_id)['shots']]
+            total += _push_table(cur, 'ws_shot_xg', rows, [], schema,
+                                 combo_id, delete_first=True)
+        except Exception as e:
+            log.error(f'  WS parser shot_xg failed: {e}')
 
     # ── Game state (parse_game_state → 4 tables, regenerated per match) ──
     if _selected('game_state', parsers):

@@ -29,8 +29,15 @@
 -- shot_uid / team_row_id are kept for compatibility: team_row_id is now the
 -- shot's chronological position within its team for that match.
 with ws as (
-    select *, minute + coalesce(second, 0) / 60.0 as t
-    from {{ ref('stg_ws_shots') }}
+    select s.*, s.minute + coalesce(s.second, 0) / 60.0 as t,
+           x.dxi_xg, x.dxi_xg_l1, x.dxi_xgot, x.dxi_xgot_l1,
+           x.is_on_target as dxi_is_on_target, x.keeper_uid as dxi_keeper_uid,
+           x.model_version as dxi_model_version
+    from {{ ref('stg_ws_shots') }} s
+    -- Data XI xG / xGOT: WhoScored numbers events per team, so the key needs
+    -- the team (combo_id + event_id alone is shared by ~1% of shots)
+    left join {{ ref('stg_ws_shot_xg') }} x
+           on x.combo_id = s.combo_id and x.team_uid = s.team_uid and x.event_id = s.event_id
 ),
 fot as (
     select *, minute + coalesce(minute_added, 0) - 0.5 as t
@@ -217,6 +224,9 @@ select
     w.x as ws_x, w.y as ws_y, w.goal_mouth_y as ws_goal_mouth_y, w.goal_mouth_z as ws_goal_mouth_z,
     -- Match timing from Fotmob
     f.minute as expanded_minute, f.minute_added,
+    -- Data XI xG / xGOT (WhoScored shots only; xgot 0 off target, null for own goals)
+    w.dxi_xg, w.dxi_xg_l1, w.dxi_xgot, w.dxi_xgot_l1,
+    w.dxi_is_on_target, w.dxi_keeper_uid, w.dxi_model_version,
     -- Fotmob xg + coordinates + extras
     f.xg, f.xgot,
     f.x as fot_x, f.y as fot_y,

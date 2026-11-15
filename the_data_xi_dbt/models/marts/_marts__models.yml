@@ -36,3 +36,11 @@ models:
       - name: shot_uid
         tests:
           - unique: {config: {severity: warn}}
+      - name: dxi_xgot
+        tests:
+          - dbt_utils.accepted_range: {min_value: 0, max_value: 1, config: {severity: warn}}
+  - name: agg_keeper_season
+    description: "Data XI goals prevented per keeper, competition and season, centred on the competition-season's average keeper. One season is mostly chance: show goals_prevented_se."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [player_uid, season_uid, competition_uid]

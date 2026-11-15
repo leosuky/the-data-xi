@@ -857,6 +857,32 @@ CREATE TABLE IF NOT EXISTS ws_shots (
     is_set_piece                BOOLEAN
 );
 
+-- ws_shot_xg: Data XI xG / xGOT per shot (parse_shot_xg; delete+insert per
+-- combo_id). WhoScored numbers events per team: a shot is
+-- (combo_id, team_id, event_id), never (combo_id, event_id).
+CREATE TABLE IF NOT EXISTS ws_shot_xg (
+    id                      BIGSERIAL PRIMARY KEY,
+    combo_id                TEXT NOT NULL,
+    whoscored_match_id      INTEGER,
+    event_id                INTEGER,
+    team_id                 INTEGER,
+    player_id               INTEGER,
+    period                  INTEGER,
+    minute                  INTEGER,
+    second                  INTEGER,
+    is_goal                 BOOLEAN,      -- own goals false
+    is_penalty              BOOLEAN,
+    is_own_goal             BOOLEAN,
+    is_on_target            BOOLEAN,      -- Goal, or SavedShot without Blocked
+    keeper_id               INTEGER,      -- defending keeper at the moment of the shot
+    dxi_xg                  NUMERIC(5,4), -- boosted; 0.79 for penalties; NULL for own goals
+    dxi_xg_l1               NUMERIC(5,4), -- logistic fallback
+    dxi_xgot                NUMERIC(5,4), -- boosted; 0 off target; NULL for own goals
+    dxi_xgot_l1             NUMERIC(5,4), -- logistic fallback
+    model_version           TEXT,
+    UNIQUE (combo_id, team_id, event_id)
+);
+
 -- ══════════════════════════════════════════════════════════════════════════
 -- ║  WhoScored — GAME STATE (parse_game_state)                               ║
 -- ══════════════════════════════════════════════════════════════════════════

@@ -65,3 +65,27 @@ models:
     columns:
       - name: player_uid
         tests: [not_null]
+  - name: stg_ws_shot_xg
+    description: "Data XI xG / xGOT per WhoScored shot (parse_shot_xg). Key: combo_id + team_uid + event_id."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [combo_id, team_uid, event_id]
+      - dbt_utils.expression_is_true:            # off target / blocked / post / miss: xGOT 0
+          expression: "is_on_target or is_own_goal or dxi_xgot = 0"
+    columns:
+      - name: combo_id
+        tests: [not_null]
+      - name: event_id
+        tests: [not_null]
+      - name: dxi_xg
+        tests:
+          - dbt_utils.accepted_range: {min_value: 0, max_value: 1}
+      - name: dxi_xgot
+        tests:
+          - dbt_utils.accepted_range: {min_value: 0, max_value: 1}
+      - name: keeper_uid
+        tests:
+          - not_null:
+              config:
+                where: "is_on_target"
+                severity: warn

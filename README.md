@@ -32,6 +32,7 @@
   - [4 · Staging layer](#4--staging-layer)
   - [5 · Marts layer](#5--marts-layer)
 - [Shot alignment: one key across providers](#shot-alignment-one-key-across-providers)
+- [Data XI xG and xGOT](#data-xi-xg-and-xgot)
 - [Orchestration](#orchestration)
 - [Data quality & testing](#data-quality--testing)
 - [Infrastructure](#infrastructure)
@@ -267,6 +268,8 @@ flowchart TB
 **Aggregates** (views): `agg_player_season` / `agg_team_season` — season totals → **per-90** →
 **percentile ranks** (`percent_rank()` partitioned by season × competition × position). Views
 so they recompute on read and stay current without a rebuild.
+`agg_keeper_season` — Data XI goals prevented per keeper, centred on the competition-season's
+average keeper, with a standard error.
 
 ---
 
@@ -282,6 +285,25 @@ shot ID all line up.
 > The alignment assumes every provider logged the same shots in the same order. Equal counts is
 > the necessary condition, so a **shot-count reconciler** test (severity `warn`) flags any match
 > where provider counts disagree — the one place this scheme can drift.
+
+---
+
+## Data XI xG and xGOT
+
+Our own expected-goals models give **every WhoScored shot** a value by one definition, in every
+season and competition — including seasons with no provider xG (2018/19–2019/20).
+
+- **xG** — the chance of scoring from where and how the shot was taken, and how the chance was
+  made. **xGOT** — the chance a shot on target goes in, from where it was heading in the goal
+  (0 for shots off target or blocked).
+- `parse_shot_xg` writes one row per shot to `raw.ws_shot_xg` (xG, xGOT, on-target flag, the
+  keeper in goal). A shot's key is **`(combo_id, team, event_id)`** — WhoScored numbers events
+  per team.
+- Surfaced as `dxi_*` columns on `fct_shots`, `fct_player_shooting`, `fct_team_shooting`
+  (for and against), `fct_player_goalkeeping` (xGOT faced) and `agg_player_season`
+  (placement added), plus `agg_keeper_season` (goals prevented).
+
+Details, rules and the yearly refit: [`include/helpers/whoscored/models/README.md`](include/helpers/whoscored/models/README.md).
 
 ---
 

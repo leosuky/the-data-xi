@@ -1,0 +1,63 @@
+{
+ "features": [
+  "gm_off",
+  "gm_z",
+  "gm_side",
+  "shot_side",
+  "far_post",
+  "head",
+  "other_body",
+  "from_corner",
+  "set_piece",
+  "direct_fk",
+  "assisted",
+  "a_cross",
+  "a_through",
+  "a_long",
+  "a_head",
+  "a_chipped",
+  "a_layoff",
+  "a_corner",
+  "a_fk",
+  "a_cutback",
+  "in_box",
+  "six_yard",
+  "dist",
+  "angle",
+  "abs_dy",
+  "dx",
+  "a_len",
+  "score_diff",
+  "red_diff"
+ ],
+ "trees": 1010,
+ "params": {
+  "objective": "binary",
+  "learning_rate": 0.04,
+  "num_leaves": 16,
+  "min_child_samples": 100,
+  "subsample": 0.8,
+  "subsample_freq": 1,
+  "colsample_bytree": 0.8,
+  "reg_lambda": 5.0,
+  "verbose": -1,
+  "n_jobs": 2
+ },
+ "trained_on": "top five, non-penalty shots on target (Goal, or SavedShot without Blocked), 2018/19 to 2026-11-02",
+ "shots": 121463,
+ "goals": 36303,
+ "penalties_on_target": 4662,
+ "penalty_goals": 3906,
+ "placement": {
+  "gm_off": "|goalMouthY - 50|",
+  "gm_z": "goalMouthZ",
+  "gm_side": "goalMouthY - 50",
+  "shot_side": "y - 50",
+  "far_post": "sign(gm_side) * sign(shot_side) * min(|gm_side|, 4.8) * min(|shot_side|, 20) / 20"
+ },
+ "off_target": "blocked (incl. saved off the line), post, miss -> 0; own goals -> null",
+ "l1_xg_clip": [
+  0.0001,
+  0.9999
+ ]
+}
